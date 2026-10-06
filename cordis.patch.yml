@@ -1,0 +1,4 @@
+# Bundle patch: mount dsh-model-dispatch into the host composition.
+- insert:
+    - id: model-switch
+      name: dsh-model-dispatch

@@ -1,0 +1,8 @@
+node_modules/
+*.tsbuildinfo
+.DS_Store
+*.tgz
+# 本地排查资料，不随公开仓库发布
+VERIFICATION-BRIEF.md
+opencode-go-probe-brief.md
+*.log
