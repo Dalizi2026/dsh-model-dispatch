@@ -7,6 +7,7 @@ import type { Config, ModelSelectionConfig } from './shared.ts'
 import { mergeAgentOptions } from './merge.ts'
 import type { RouteValidator } from './model-route.ts'
 import type { SessionOverrideStore } from './session-overrides.ts'
+import { delegationSelection } from './delegation-selection.ts'
 
 export function installSubagentRouting(ctx: Context, current: () => Config, overrides: SessionOverrideStore, validate: RouteValidator): void {
   const selectionFor = (parent: unknown): ModelSelectionConfig | undefined => {
@@ -16,11 +17,28 @@ export function installSubagentRouting(ctx: Context, current: () => Config, over
   }
   const optionsFor = async (parent: unknown, requested: AgentOptions | undefined): Promise<AgentOptions | undefined> => {
     const selection = selectionFor(parent)
-    if (!selection) {
+    const explicit = delegationSelection.getStore()
+    const toolSelection = explicit?.parent === parent ? explicit : undefined
+    if (!selection && !toolSelection) {
       if (readRoute(current().subagent)?.mode === 'custom') ctx.logger.warn('dsh-model-dispatch: subagent selection is incomplete; following parent')
       return undefined
     }
-    const options = mergeAgentOptions(requested, selection)
+    const options = selection ? mergeAgentOptions(requested, selection) : { ...requested }
+    if (toolSelection?.provider !== undefined) {
+      options.provider = toolSelection.provider
+      options.model = toolSelection.model
+      // Effort belongs to a route. Selecting a new route without an effort
+      // uses its adapter default, rather than a configured default's effort.
+      delete options.reasoningEffort
+    }
+    if (toolSelection?.reasoningEffort !== undefined) options.reasoningEffort = toolSelection.reasoningEffort as AgentOptions['reasoningEffort']
+    if (toolSelection && (options.provider === undefined || options.model === undefined)) {
+      const agent = parent as { options?: AgentOptions; session?: { requestHeader(): { config: AgentOptions } | undefined } }
+      const parentOptions = agent.session?.requestHeader()?.config ?? agent.options
+      options.provider ??= parentOptions?.provider
+      options.model ??= parentOptions?.model
+    }
+    if (toolSelection && (options.provider === undefined || options.model === undefined)) throw new Error('Cannot determine the effective child model route')
     // Validate AFTER explicit request options win, so an obsolete default does
     // not block a valid explicit route. Native inheritance handles omitted pairs.
     if (options.provider !== undefined && options.model !== undefined) {

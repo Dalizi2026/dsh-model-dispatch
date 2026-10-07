@@ -23,6 +23,7 @@ import { installPlanModelSwitch } from './plan-model.ts'
 import { installSessionModelScope } from './session-model-scope.ts'
 import { modelRouteValidator } from './model-route.ts'
 import { installSubagentRouting } from './subagent-routing.ts'
+import { assertCatalogRoute, installSubagentCatalog } from './subagent-catalog.ts'
 
 export {
   resolveCustomSelection,
@@ -56,6 +57,7 @@ export const inject = ['subagents']
 export async function apply(ctx: Context, config: ModelSwitchConfig = {}): Promise<void> {
   const current = (): ModelSwitchConfig => config
   installSessionModelScope(ctx)
+  installSubagentCatalog(ctx)
 
   const labels = new SessionLabelRegistry()
   installSessionLabelsHttp(ctx, labels)
@@ -72,5 +74,8 @@ export async function apply(ctx: Context, config: ModelSwitchConfig = {}): Promi
   installPlanMainsHttp(ctx, planMains)
   installPlanModelSwitch(ctx, current, planMains)
 
-  installSubagentRouting(ctx, current, overrides, validateRoute)
+  installSubagentRouting(ctx, current, overrides, async route => {
+    await assertCatalogRoute(ctx, route)
+    await validateRoute(route)
+  })
 }

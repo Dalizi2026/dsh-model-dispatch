@@ -6,6 +6,8 @@ Pick separate models and reasoning efforts for the main session, subagents, and 
 
 > This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for **DSH 0.2.0-rc.2**: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
 
+> Version 1.0.1: main, planning, and child models share the live host catalog. Explicit child selections and `list_subagent_models` work in existing sessions even when rc.2 captured an older allowlist. Model additions are available on the next delegation; removed routes and unsupported reasoning efforts are rejected before creating a child. Native delegation guards and lifecycle still apply.
+
 ## Features
 
 - **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.

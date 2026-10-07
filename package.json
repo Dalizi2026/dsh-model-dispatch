@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-dispatch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DSH plugin: per-session model switching for main agent, subagents, and plan mode / 为 DSH 的主会话、子代理与计划模式分别选择模型与思考强度",
   "type": "module",
   "main": "lib/index.js",
