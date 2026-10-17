@@ -9,6 +9,36 @@ import type { RouteValidator } from './model-route.ts'
 import type { SessionOverrideStore } from './session-overrides.ts'
 import { delegationSelection } from './delegation-selection.ts'
 
+
+/** One delegation request as the host hands it to a subagent entry point. */
+interface SubagentStartRequest {
+  parent: unknown
+  agentOptions?: AgentOptions
+  [key: string]: unknown
+}
+
+/** Activation / continuable specs carry the request one level down. */
+interface SubagentStartSpec {
+  request: SubagentStartRequest
+  [key: string]: unknown
+}
+
+/**
+ * Subagent entry points across DSH releases.
+ *
+ * DSH 0.2.0-rc.x exposes `start(name, request)` and `startContinuable(spec)`;
+ * DSH 0.2.1-rc.1 merged them into `startActivation(spec)`. A plugin that only
+ * wraps the old names assigns to properties the host no longer has, which fails
+ * silently and leaves the child on the parent's route.
+ */
+interface SubagentStartRuntime {
+  start?: (name: string, request: SubagentStartRequest) => Promise<unknown>
+  startContinuable?: (spec: SubagentStartSpec) => Promise<unknown>
+  startActivation?: (spec: SubagentStartSpec) => Promise<unknown>
+}
+
+type SubagentStartMethod = keyof SubagentStartRuntime
+
 export function installSubagentRouting(ctx: Context, current: () => Config, overrides: SessionOverrideStore, validate: RouteValidator): void {
   const selectionFor = (parent: unknown): ModelSelectionConfig | undefined => {
     const id = (parent as { id?: unknown } | undefined)?.id
@@ -46,23 +76,39 @@ export function installSubagentRouting(ctx: Context, current: () => Config, over
     }
     return options
   }
-  const runtime = ctx.subagents as SubagentRuntime
+  const runtime = ctx.subagents as unknown as SubagentStartRuntime
   ctx.effect(() => {
-    const start = runtime.start
-    const continuable = runtime.startContinuable
-    const wrappedStart: typeof start = async (name, request) => {
-      const agentOptions = await optionsFor(request.parent, request.agentOptions)
-      return start.call(runtime, name, agentOptions === undefined ? request : { ...request, agentOptions })
+    // Wrap every entry point this host exposes: start/startContinuable on 0.2.0
+    // hosts, startActivation on 0.2.1 and later. Wrapping a missing method is a
+    // no-op, so the same code covers both releases.
+    const restores: Array<() => void> = []
+
+    const wrapSpec = (method: 'startActivation' | 'startContinuable'): void => {
+      const original = runtime[method]
+      if (typeof original !== 'function') return
+      const wrapped = async (spec: SubagentStartSpec): Promise<unknown> => {
+        const request = spec?.request
+        const agentOptions = await optionsFor(request?.parent, request?.agentOptions)
+        return original.call(runtime, agentOptions === undefined ? spec : { ...spec, request: { ...request, agentOptions } })
+      }
+      runtime[method] = wrapped
+      restores.push(() => { if (runtime[method] === wrapped) runtime[method] = original })
     }
-    const wrappedContinuable: typeof continuable = async spec => {
-      const agentOptions = await optionsFor(spec.request.parent, spec.request.agentOptions)
-      return continuable.call(runtime, agentOptions === undefined ? spec : { ...spec, request: { ...spec.request, agentOptions } })
+
+    const wrapStart = (): void => {
+      const original = runtime.start
+      if (typeof original !== 'function') return
+      const wrapped = async (name: string, request: SubagentStartRequest): Promise<unknown> => {
+        const agentOptions = await optionsFor(request?.parent, request?.agentOptions)
+        return original.call(runtime, name, agentOptions === undefined ? request : { ...request, agentOptions })
+      }
+      runtime.start = wrapped
+      restores.push(() => { if (runtime.start === wrapped) runtime.start = original })
     }
-    runtime.start = wrappedStart
-    runtime.startContinuable = wrappedContinuable
-    return () => {
-      if (runtime.start === wrappedStart) runtime.start = start
-      if (runtime.startContinuable === wrappedContinuable) runtime.startContinuable = continuable
-    }
+
+    wrapSpec('startActivation')
+    wrapSpec('startContinuable')
+    wrapStart()
+    return () => { for (const restore of restores) restore() }
   }, 'model-switch: validate and wrap subagent start')
 }
