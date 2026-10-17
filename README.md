@@ -4,9 +4,11 @@ English | [中文](README.zh.md)
 
 Pick separate models and reasoning efforts for the main session, subagents, and plan mode in DeepSeek Harness (DSH).
 
-> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for **DSH 0.2.0-rc.2**: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
+> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for **DSH 0.2.0-rc.2 / 0.2.1-rc.1**: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
 
 > Version 1.0.1: main, planning, and child models share the live host catalog. Explicit child selections and `list_subagent_models` work in existing sessions even when rc.2 captured an older allowlist. Model additions are available on the next delegation; removed routes and unsupported reasoning efforts are rejected before creating a child. Native delegation guards and lifecycle still apply.
+
+> Version 1.1.0 supports DSH 0.2.1-rc.1 managed `startActivation` routing, external task and migration states, and structured plan approvals. Legacy 0.2.0 start methods remain supported through capability detection. See [compatibility notes](docs/dsh-021-compatibility.md).
 
 ## Features
 
@@ -25,7 +27,7 @@ Pick separate models and reasoning efforts for the main session, subagents, and 
 
 ## Install
 
-Requires **DeepSeek Harness 0.2.0-rc.2** (other 0.2.x versions need compatibility checks).
+Supports **DeepSeek Harness 0.2.1-rc.1** with the legacy 0.2.0-rc.2 start API retained. Other versions require compatibility checks.
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
@@ -57,8 +59,8 @@ Coverage: route-merge precedence, session-override storage and concurrent writes
 
 ## Known limitations
 
-- Tightly coupled to DSH 0.2.0-rc.2 internals (configForms, sessionProjections, sessionController, planMode); re-run the suite after a DSH upgrade.
-- Plan-boundary detection depends on the native `exit_plan_mode` result wording; a DSH wording change delays the restore (the `plan/mode` event is the fallback).
+- Tightly coupled to DSH 0.2.x internals (configForms, sessionProjections, sessionController, planMode); re-run the suite after a DSH upgrade.
+- Live plan approval uses the canonical `approved` value. Recovering an approval across a process restart also uses the durable tool result and `plan/mode` events; native event changes require regression checks.
 - Subagent sessions intentionally do not participate in plan switching or subagent overrides.
 
 ## Credits

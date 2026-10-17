@@ -1,13 +1,29 @@
 /** Validate and install the final child route before creating a child. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
-import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-subagent'
 import { readRoute, resolveCustomSelection } from './config.ts'
 import type { Config, ModelSelectionConfig } from './shared.ts'
 import { mergeAgentOptions } from './merge.ts'
 import type { RouteValidator } from './model-route.ts'
 import type { SessionOverrideStore } from './session-overrides.ts'
 import { delegationSelection } from './delegation-selection.ts'
+
+interface ChildRequest {
+  parent: unknown
+  agentOptions?: AgentOptions
+  [key: string]: unknown
+}
+interface ActivationSpec {
+  request: ChildRequest
+  [key: string]: unknown
+}
+/** The activation API replaced both legacy start methods in DSH 0.2.1. */
+interface RoutingRuntime {
+  startActivation?: (spec: ActivationSpec) => Promise<unknown>
+  start?: (name: string, request: ChildRequest) => Promise<unknown>
+  startContinuable?: (spec: ActivationSpec) => Promise<unknown>
+}
 
 export function installSubagentRouting(ctx: Context, current: () => Config, overrides: SessionOverrideStore, validate: RouteValidator): void {
   const selectionFor = (parent: unknown): ModelSelectionConfig | undefined => {
@@ -46,23 +62,29 @@ export function installSubagentRouting(ctx: Context, current: () => Config, over
     }
     return options
   }
-  const runtime = ctx.subagents as SubagentRuntime
+  const runtime = ctx.subagents as unknown as RoutingRuntime
   ctx.effect(() => {
-    const start = runtime.start
-    const continuable = runtime.startContinuable
-    const wrappedStart: typeof start = async (name, request) => {
+    const restorations: (() => void)[] = []
+    const withRoute = async (request: ChildRequest): Promise<ChildRequest> => {
       const agentOptions = await optionsFor(request.parent, request.agentOptions)
-      return start.call(runtime, name, agentOptions === undefined ? request : { ...request, agentOptions })
+      return agentOptions === undefined ? request : { ...request, agentOptions }
     }
-    const wrappedContinuable: typeof continuable = async spec => {
-      const agentOptions = await optionsFor(spec.request.parent, spec.request.agentOptions)
-      return continuable.call(runtime, agentOptions === undefined ? spec : { ...spec, request: { ...spec.request, agentOptions } })
+    for (const key of ['startActivation', 'startContinuable'] as const) {
+      const original = runtime[key]
+      if (typeof original !== 'function') continue
+      const wrapped: typeof original = async spec => original.call(runtime, { ...spec, request: await withRoute(spec.request) })
+      runtime[key] = wrapped
+      restorations.push(() => { if (runtime[key] === wrapped) runtime[key] = original })
     }
-    runtime.start = wrappedStart
-    runtime.startContinuable = wrappedContinuable
+    const start = runtime.start
+    if (typeof start === 'function') {
+      const wrapped: typeof start = async (name, request) => start.call(runtime, name, await withRoute(request))
+      runtime.start = wrapped
+      restorations.push(() => { if (runtime.start === wrapped) runtime.start = start })
+    }
+    if (restorations.length === 0) throw new Error('Unsupported DSH subagent runtime: no activation or legacy start API')
     return () => {
-      if (runtime.start === wrappedStart) runtime.start = start
-      if (runtime.startContinuable === wrappedContinuable) runtime.startContinuable = continuable
+      for (const restore of restorations.reverse()) restore()
     }
   }, 'model-switch: validate and wrap subagent start')
 }

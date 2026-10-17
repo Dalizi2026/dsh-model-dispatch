@@ -4,7 +4,7 @@
 
 为 DeepSeek Harness (DSH) 的主会话、子代理与计划模式分别选择模型与思考强度。
 
-> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
+> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2 / 0.2.1-rc.1** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
 
 ## 功能
 
@@ -16,6 +16,13 @@
 - **全部模型可委派**：主代理、子代理与计划模型共用宿主当前模型目录。子代理的显式选模与 `list_subagent_models` 不再受旧会话创建时的静态列表限制；新增模型自动可用，移除模型后不再允许新建相应子代理。
 - **保存前路由校验**：保存覆盖与创建子代理前，通过宿主 `resolveCallConfig` 校验 provider/model/effort 的真实组合；无效组合直接给出具体错误，不会等子代理运行失败。
 
+## 1.1.0 新版本适配
+
+- 子代理路由覆盖新版 `startActivation`，保留托管激活的子代理 ID、结果通知、预设、工作目录、输出约束与取消信号；旧版存在的 `start` / `startContinuable` 仍按能力检测接入，不创建不存在的方法。
+- 子代理目录兼容外部任务与待迁移会话：外部任务仅展示，旧会话先打开完成原生迁移，不再无限展开加载。
+- 计划审批优先读取结构化 `approved` 结果；关闭审批面板返回 `approved:false` 时保持计划模型，批准或 `/plan off` 后恢复原主模型。
+- 使用 0.2.1-rc.1 依赖编译，并加入直接调用新版原生子代理工具的兼容测试。
+
 ## 路由规则
 
 - **子代理**：本会话覆盖 > 设置里的子代理默认 > 原生父模型继承。工具调用里显式指定的启动参数仍然优先。
@@ -24,7 +31,7 @@
 
 ## 安装
 
-要求 **DeepSeek Harness 0.2.0-rc.2**（其他 0.2.x 版本需重新验证接口）。
+支持 **DeepSeek Harness 0.2.1-rc.1**，并保留 0.2.0-rc.2 的旧启动接口兼容。其他版本需重新验证。
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
@@ -56,8 +63,8 @@ pnpm build       # tsc（双工程）+ tsdown 客户端 bundle
 
 ## 已知限制
 
-- 与 DSH 0.2.0-rc.2 的内部接口（configForms、sessionProjections、sessionController、planMode）强耦合；DSH 升级需回归测试。
-- 对计划边界的识别依赖原生 `exit_plan_mode` 的结果文案；DSH 修改该文案会影响“批准后恢复”的及时性（有 `plan/mode` 事件兜底）。
+- 与 DSH 0.2.x 的内部接口（configForms、sessionProjections、sessionController、planMode）强耦合；DSH 升级需回归测试。
+- 运行中的计划审批读取结构化 `approved` 值；跨重启恢复还会读取历史工具结果与 `plan/mode` 事件，宿主事件格式变化需回归验证。
 - 子代理会话内部不参与计划切换与子代理覆盖（按设计）。
 
 ## 致谢

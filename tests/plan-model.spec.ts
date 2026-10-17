@@ -42,13 +42,19 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
   return {
     session, agent, plan, projected, calls, mains,
     gate(promise: Promise<void>) { admission = promise },
-    event(type: string, data: any) { boundary = planBoundaryDefinition.apply(boundary, { type, data }) },
+    event(type: string, data: any) {
+      boundary = planBoundaryDefinition.apply(boundary, { type, data })
+      events.emit('session/event', session, { type, data })
+    },
     approve() {
       boundary = planBoundaryDefinition.apply(boundary, { type: 'tool/call', data: { name: 'exit_plan_mode', callId: 'exit1' } })
       boundary = planBoundaryDefinition.apply(boundary, { type: 'tool/result', data: { message: { source: { callId: 'exit1' }, content: [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }] } } })
       plan.pending = false
     },
     select(value: ModelSelectionConfig) { selected.current = value; projected.pending = value },
+    async reviewResult(approved: boolean, isError = false) {
+      await events.emit('tools/result', { name: 'exit_plan_mode', agent }, { isError, value: { approved }, content: [] })
+    },
     async request() {
       await events.waterfall('system-prompt/assemble', { variables: {} }, { agent }, async () => ({ variables: {} }))
       return events.waterfall('agent/request', {}, async () => main)
@@ -62,6 +68,33 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
 }
 
 describe('temporary planning models before native model snapshots', () => {
+  it('discards an earlier canonical approval when a new /plan intent supersedes it', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.plan.active = true
+    expect((await h.request()).model).toBe(smart.model); h.consume()
+    await h.reviewResult(true)
+    h.event('command/run', { name: 'plan', args: '', commandId: 'plan-again' })
+    expect((await h.request()).model).toBe(smart.model)
+    expect(h.mains.get('s1')).toEqual(main)
+  })
+  it('uses the canonical approval value even if rendered approval text changes', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.plan.active = true
+    expect((await h.request()).model).toBe(smart.model); h.consume()
+    await h.reviewResult(true)
+    expect(await h.request()).toMatchObject(main)
+    expect(h.mains.get('s1')).toBeUndefined()
+  })
+  it('keeps the planning model after the new successful approved:false dismissal and after errors', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.plan.active = true
+    expect((await h.request()).model).toBe(smart.model); h.consume()
+    await h.reviewResult(false)
+    expect((await h.request()).model).toBe(smart.model)
+    await h.reviewResult(true, true)
+    expect((await h.request()).model).toBe(smart.model)
+    expect(h.mains.get('s1')).toEqual(main)
+  })
   it('leaves ordinary chats and repeated assemblies untouched', async () => {
     const h = setup(); expect(await h.request()).toEqual(main); expect(await h.request()).toEqual(main); expect(h.calls).toEqual([])
   })
