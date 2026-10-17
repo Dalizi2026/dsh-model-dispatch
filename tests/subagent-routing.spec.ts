@@ -18,6 +18,40 @@ function setup(override: ModelSelectionConfig | undefined = invalid, config: Con
   installSubagentRouting({ subagents: runtime, logger: { warn() {} }, effect(install: () => () => void) { dispose = install() } } as never, () => config, { get: (id: string) => id === 's1' ? override : undefined } as never, validate)
   return { runtime, start, startContinuable, resolveCallConfig, dispose: () => dispose() }
 }
+/** DSH 0.2.1-rc.1 exposes only startActivation, not start/startContinuable. */
+function setupActivation(override: ModelSelectionConfig | undefined = valid, config: Config = {}) {
+  const startActivation = vi.fn(async (..._args: unknown[]) => 'activated')
+  const runtime: Record<string, unknown> = { startActivation }
+  const resolveCallConfig = vi.fn(async (next: ModelSelectionConfig) => ({ ...next, maxTokens: 1000 }))
+  const validate = modelRouteValidator({ get: () => ({ resolveCallConfig }) } as never)
+  let dispose!: () => void
+  installSubagentRouting({ subagents: runtime, logger: { warn() {} }, effect(install: () => () => void) { dispose = install() } } as never, () => config, { get: (id: string) => id === 's1' ? override : undefined } as never, validate)
+  return { runtime, startActivation, resolveCallConfig, dispose: () => dispose() }
+}
+
+describe('startActivation-only hosts (DSH 0.2.1+)', () => {
+  it('applies the route through startActivation when the older methods are absent', async () => {
+    const h = setupActivation()
+    await (h.runtime.startActivation as (spec: unknown) => Promise<unknown>)({ request: { parent: { id: 's1' } }, label: 'research' })
+    expect(h.startActivation).toHaveBeenCalledWith({ request: { parent: { id: 's1' }, agentOptions: valid }, label: 'research' })
+    expect(h.resolveCallConfig).toHaveBeenCalledWith(valid)
+  })
+  it('keeps native inheritance when unconfigured and restores startActivation on unload', async () => {
+    const h = setupActivation(undefined)
+    const spec = { request: { parent: { id: 'other' } } }
+    await (h.runtime.startActivation as (spec: unknown) => Promise<unknown>)(spec)
+    expect(h.startActivation).toHaveBeenCalledWith(spec)
+    expect(h.resolveCallConfig).not.toHaveBeenCalled()
+    h.dispose(); expect(h.runtime.startActivation).toBe(h.startActivation)
+  })
+  it('still validates a selected route before creating the child', async () => {
+    const h = setupActivation()
+    h.resolveCallConfig.mockImplementationOnce(async () => { throw new Error('no configured model') })
+    await expect((h.runtime.startActivation as (spec: unknown) => Promise<unknown>)({ request: { parent: { id: 's1' } } })).rejects.toThrow('no configured model')
+    expect(h.startActivation).not.toHaveBeenCalled()
+  })
+})
+
 describe('child route validation before runtime creation', () => {
   it('rejects the reported invalid pair before foreground/background or continuable child creation', async () => {
     const h = setup()
