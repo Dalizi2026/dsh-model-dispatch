@@ -10,6 +10,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SESSION_OVERRIDES_ROUTE } from './label.ts';
 import type { ModelSelectionConfig } from './shared.ts';
 import type { RouteValidator } from './model-route.ts';
+import type { HttpGate } from './route-http.ts';
 export { SESSION_OVERRIDES_ROUTE };
 /** In-memory + on-disk map of sessionId → subagent selection. */
 export declare class SessionOverrideStore {
@@ -31,4 +32,4 @@ export declare class SessionOverrideStore {
  * @param ctx - host context.
  * @param store - override map.
  */
-export declare function installSessionOverridesHttp(ctx: Context, store: SessionOverrideStore, validate?: RouteValidator): void;
+export declare function installSessionOverridesHttp(ctx: Context, store: SessionOverrideStore, validate?: RouteValidator, gate?: HttpGate): void;

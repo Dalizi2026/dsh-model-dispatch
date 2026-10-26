@@ -1,13 +1,12 @@
-/** Use the live configured catalog as the user's child-model selection authority.
- * rc.2 freezes its built-in tool's explicit-choice list at session creation.
- * Keep that native delegation body, but route the plugin-owned selection through
- * start/startContinuable after validating it against today's catalog. The original
- * tool arguments remain in the durable log and all native dispatch guards run.
+/** Human menus use the live catalog. Model tools report only the user route.
+ * Preserve native tool schemas/lifecycle and discard conflicting machine choices
+ * before native allowlist validation; every start still passes the authority.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ModelSelectionConfig } from './shared.ts'
 import { delegationSelection } from './delegation-selection.ts'
+import type { RouteEnforcer, RoutingAgent } from './route-enforcer.ts'
 
 interface CatalogModel {
   id: string
@@ -50,7 +49,7 @@ export async function listCatalogModels(ctx: Context, args: unknown, signal: Abo
 }
 
 /** Adapt visible native tool bodies before assembly; restore them on unload. */
-export function installSubagentCatalog(ctx: Context): void {
+export function installSubagentCatalog(ctx: Context, authority: RouteEnforcer): void {
   ctx.inject(['tools'], scope => {
     const restorations = new WeakMap<ToolDefinition, { original: ToolDefinition['execute']; wrapped: ToolDefinition['execute'] }>()
     const definitions = new Set<WeakRef<ToolDefinition>>()
@@ -58,20 +57,22 @@ export function installSubagentCatalog(ctx: Context): void {
       if (!definition || restorations.has(definition)) return
       const original = definition.execute
       const wrapped: ToolDefinition['execute'] = definition.name === 'list_subagent_models'
-        ? (args, exec) => listCatalogModels(scope, args, exec.signal)
+        ? async (_args, exec) => {
+          if (!exec.agent) throw new Error('A parent agent is required')
+          const decision = await authority.resolve(exec.agent as unknown as RoutingAgent)
+          const route = decision.selection
+          return `User-locked child model: ${route.provider}/${route.model}${route.reasoningEffort === undefined ? '' : ' · ' + route.reasoningEffort}. Model and effort arguments cannot change this route. Omit them when delegating.`
+        }
         : async (args, exec) => {
           const request = args as Record<string, unknown>
           const { provider, model, reasoning_effort, ...nativeArgs } = request
           if (provider === undefined && model === undefined && reasoning_effort === undefined) return original.call(definition, args, exec)
           if (!exec.agent) throw new Error('A child model selection requires a parent agent')
-          if ((provider === undefined) !== (model === undefined)) throw new Error('Child provider and model must be supplied together')
-          for (const [key, value] of Object.entries({ provider, model, reasoning_effort })) {
-            if (value !== undefined && (typeof value !== 'string' || value.length === 0)) throw new Error(`Child ${key} must be a non-empty string`)
-          }
           exec.signal.throwIfAborted()
           return delegationSelection.run({
             parent: exec.agent,
-            ...provider === undefined ? {} : { provider: provider as string, model: model as string },
+            ...provider === undefined ? {} : { provider: provider as string },
+            ...model === undefined ? {} : { model: model as string },
             ...reasoning_effort === undefined ? {} : { reasoningEffort: reasoning_effort as string },
           }, () => original.call(definition, nativeArgs, exec))
         }
@@ -83,7 +84,11 @@ export function installSubagentCatalog(ctx: Context): void {
       if (context.agent) {
         // The Agent is the native registry's scope key. Do not register a
         // shadow tool or change its schema, outputs, provider, or restrictions.
-        adapt(scope.tools.get('subagent', context.agent))
+        const schemas = scope.tools.schemas?.(context.agent) ?? [{ name: 'subagent' }]
+        for (const schema of schemas) {
+          const definition = scope.tools.get(schema.name, context.agent)
+          if (definition && isDelegationTool(definition)) adapt(definition)
+        }
         adapt(scope.tools.get('list_subagent_models', context.agent))
       }
       return next()
@@ -97,4 +102,14 @@ export function installSubagentCatalog(ctx: Context): void {
       definitions.clear()
     }, 'model-dispatch: live catalog child selection')
   })
+}
+
+/** Native delegation's canonical output identifies aliases without matching prose. */
+export function isDelegationTool(definition: ToolDefinition): boolean {
+  if (definition.name === 'subagent') return true
+  const schema = definition.output.schema as { properties?: { kind?: { const?: string }; subagentId?: unknown }; oneOf?: { properties?: { kind?: { const?: string } } }[] }
+  const parameters = definition.parameters as { properties?: Record<string, unknown> }
+  return Boolean(parameters.properties?.prompt && parameters.properties?.description
+    && ((schema.properties?.kind?.const === 'activation' && schema.properties.subagentId)
+      || schema.oneOf?.some(branch => ['foreground', 'background', 'continuable'].includes(branch.properties?.kind?.const ?? ''))))
 }

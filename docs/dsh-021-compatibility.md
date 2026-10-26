@@ -1,5 +1,7 @@
 # DSH 0.2.1-rc.1 compatibility — plugin 1.1.0
 
+> 历史版本验证记录：其中“显式工具参数优先”的行为已在 1.2.0 移除。当前行为见 [1.2.0 路由锁定](1.2.0-route-locking.md)。
+
 Tested on DeepSeek Harness Desktop 0.2.1-rc.1 (2026-10-17), using the installed application's source and a separate native profile for live requests.
 
 ## Incompatibility

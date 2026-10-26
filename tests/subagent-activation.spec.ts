@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apply as applyNativeTool } from '@deepseek-ai/dsh-tool-subagent'
 import { installSubagentCatalog, assertCatalogRoute } from '../src/subagent-catalog.ts'
+import { authorityFor } from './route-fixture.ts'
 import { installSubagentRouting } from '../src/subagent-routing.ts'
 import type { ModelSelectionConfig } from '../src/shared.ts'
 
@@ -20,7 +21,7 @@ async function setup() {
   const runtime = { startActivation: start, getProvider: () => provider, resolveMaxDepth: () => 2 }
   const llm = { listProviders: () => [{ id: main.provider }, { id: step.provider }],
     listModels: async (provider: string) => [{ id: provider === main.provider ? main.model : step.model }],
-    async resolveCallConfig(next: ModelSelectionConfig) { if (next.reasoningEffort === 'invalid') throw new Error('unsupported effort') },
+    async resolveCallConfig(next: ModelSelectionConfig) { if (next.reasoningEffort === 'invalid') throw new Error('unsupported effort'); return next },
     async resolveModelInfo(_provider: string, model: string) { return { id: model, name: model } },
   }
   const scope = {
@@ -41,15 +42,16 @@ async function setup() {
     setOverride(value: ModelSelectionConfig | undefined) { override = value },
     call: (args: object) => definitions.get('subagent').execute(args, exec),
     async install() {
-      installSubagentCatalog(scope as never)
-      installSubagentRouting(scope as never, () => ({}), { get: () => override } as never, async route => { await assertCatalogRoute(scope as never, route); await llm.resolveCallConfig(route) })
+      const authority = authorityFor(scope, () => ({}), () => override, async route => { await assertCatalogRoute(scope as never, route); return llm.resolveCallConfig(route) })
+      installSubagentCatalog(scope as never, authority)
+      installSubagentRouting(scope as never, authority)
       await hooks.get('system-prompt/assemble')({}, { agent: parent }, async () => ({}))
     },
     dispose() { for (const cleanup of cleanups.reverse()) cleanup() },
   }
 }
 describe('DSH 0.2.1 native managed activations', () => {
-  it('routes native explicit model choices despite the old durable policy, preserving cwd/preset/delivery/signal', async () => {
+  it('routes the user selection despite native tool choices and old durable policy, preserving cwd/preset/delivery/signal', async () => {
     const h = await setup()
     await expect(h.call(h.args)).rejects.toThrow('not allowed for this Session')
     await h.install(); const result = await h.call(h.args)
@@ -66,13 +68,18 @@ describe('DSH 0.2.1 native managed activations', () => {
     await h.call(args)
     expect(h.start.mock.calls[0]?.[0]).toMatchObject({ request: { agentOptions: step } })
     h.setOverride(undefined); await h.call(args)
-    expect((h.start.mock.calls[1]?.[0] as { request: object }).request).not.toHaveProperty('agentOptions')
+    expect(h.start.mock.calls[1]?.[0]).toMatchObject({ request: { agentOptions: main } })
   })
   it('preserves the native preset restriction and validates invalid efforts before activation', async () => {
     const h = await setup(); await h.install()
     await expect(h.call({ ...h.args, agent_preset: 'forbidden' })).rejects.toThrow(/agent_preset.*must be one of/)
-    await expect(h.call({ ...h.args, reasoning_effort: 'invalid' })).rejects.toThrow('unsupported effort')
+    h.setOverride({ ...step, reasoningEffort: 'invalid' }); await expect(h.call(h.args)).rejects.toThrow('unsupported effort')
     expect(h.start).not.toHaveBeenCalled()
+  })
+  it('ignores conflicting native tool fields without weakening native validation', async () => {
+    const h = await setup(); await h.install()
+    await h.call({ ...h.args, provider: main.provider, model: main.model, reasoning_effort: 'invalid' })
+    expect(h.start.mock.calls[0]?.[0]).toMatchObject({ request: { agentOptions: step } })
   })
   it('preserves reserved child identity, output contract and custom delivery for non-tool callers', async () => {
     const h = await setup(); await h.install()

@@ -3,9 +3,11 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import { type ModelCatalogAccess } from './ModelPicker.tsx';
 import type { SessionOverrideStore } from './session-overrides-store.ts';
 import type { ConfigStore } from './config-store.ts';
+import type { RouteStatusStore } from './route-status-store.ts';
 import type { LocaleKey } from './locales.ts';
 export interface SessionSubagentPickerInjected {
     sessionId: SessionId;
+    routes: RouteStatusStore;
     overrides: SessionOverrideStore;
     store: ConfigStore;
     access: ModelCatalogAccess;

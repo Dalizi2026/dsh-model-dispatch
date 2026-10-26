@@ -18,6 +18,7 @@ interface ProjectionFace {
 interface PlanState { active: boolean; wanted?: boolean | null }
 interface SelectionState { pending?: ModelSelectionConfig | null; lastUsed?: ModelSelectionConfig | null }
 export interface PlanMainStore {
+  ready?(): Promise<void>
   get(id: string): ModelSelectionConfig | undefined
   set(id: string, selection: ModelSelectionConfig | undefined): Promise<void>
 }
@@ -55,6 +56,7 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
       const session = agent.session
       const logged = projections.stateOf(session, 'plan') as PlanState | undefined
       if (logged === undefined) return next()
+      await mains.ready?.()
       const boundary = projections.stateOf(session, PLAN_BOUNDARY_KEY) as BoundaryState | undefined
       const mode = (scope.get('planMode') as PlanModeFace | undefined)?.get(agent)
       // An approved native tool result precedes plan/mode:false. A projection

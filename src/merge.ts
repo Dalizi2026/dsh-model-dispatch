@@ -6,19 +6,20 @@ import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ModelSelectionConfig } from './shared.ts'
 
 /**
- * Merge a custom selection under an existing request agentOptions.
- * Explicit request fields win over the settings selection.
+ * Apply a user selection over existing request agentOptions.
+ * Only non-route request fields survive; the user owns the complete route.
  */
 export function mergeAgentOptions(
   requested: AgentOptions | undefined,
   selection: ModelSelectionConfig,
 ): AgentOptions {
+  const { provider: _provider, model: _model, reasoningEffort: _effort, ...other } = requested ?? {}
   return {
+    ...other,
     provider: selection.provider,
     model: selection.model,
     ...selection.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: selection.reasoningEffort as AgentOptions['reasoningEffort'] },
-    ...requested,
   }
 }

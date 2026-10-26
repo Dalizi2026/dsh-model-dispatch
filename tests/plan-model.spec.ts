@@ -68,6 +68,11 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
 }
 
 describe('temporary planning models before native model snapshots', () => {
+  it('blocks generation if plan recovery storage cannot load instead of silently disabling switching', async () => {
+    const h = setup(undefined, false, { ready: async () => { throw new Error('corrupt recovery file') }, get: () => undefined, set: async () => {} })
+    await expect(h.request()).rejects.toThrow('corrupt recovery file')
+    expect(h.calls).toEqual([])
+  })
   it('discards an earlier canonical approval when a new /plan intent supersedes it', async () => {
     const h = setup(undefined, true)
     await h.request(); h.plan.active = true

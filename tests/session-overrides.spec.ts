@@ -23,6 +23,13 @@ async function route(store: SessionOverrideStore, method: string, body?: unknown
   return response
 }
 describe('session overrides through the activation/HTTP lifecycle', () => {
+  it('detaches caller selections before asynchronous loading and returns detached snapshots', async () => {
+    const { store } = await setup(); const selection = { provider: 'p', model: 'selected' }
+    const saving = store.set('s1', selection); selection.model = 'mutated'; await saving
+    expect(store.get('s1')?.model).toBe('selected')
+    store.snapshot().s1!.model = 'snapshot mutation'
+    expect(store.get('s1')?.model).toBe('selected')
+  })
   it('restores disk values before startup reads and the first GET', async () => {
     const { store } = await setup()
     await store.set('s1', { provider: 'p', model: 'm' })
@@ -76,13 +83,13 @@ describe('session overrides through the activation/HTTP lifecycle', () => {
     const fresh = new SessionOverrideStore(); await fresh.ready(); expect(fresh.get('s1')).toEqual(previous)
     expect((await route(store, 'POST', { sessionId: 's1', selection: null }, reject)).status).toBe(200)
   })
-  it('loads only valid entries and writes a readable persisted map', async () => {
+  it('refuses corrupt saved selections without silently following another model', async () => {
     const { home } = await setup()
     const dir = join(home, 'storages', 'model-switch'); await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'session-overrides.json'), JSON.stringify({ good: { provider: 'p', model: 'm' }, bad: { model: 5 } }))
-    const store = new SessionOverrideStore(); await store.ready()
-    expect(Object.keys(store.snapshot())).toEqual(['good'])
-    await store.set('other', { provider: 'p', model: 'other' })
-    expect(JSON.parse(await readFile(join(dir, 'session-overrides.json'), 'utf8')).other.model).toBe('other')
+    const store = new SessionOverrideStore()
+    await expect(store.ready()).rejects.toThrow('Invalid saved model selection')
+    await expect(store.set('other', { provider: 'p', model: 'other' })).rejects.toThrow()
+    expect(JSON.parse(await readFile(join(dir, 'session-overrides.json'), 'utf8')).bad).toEqual({ model: 5 })
   })
 })
