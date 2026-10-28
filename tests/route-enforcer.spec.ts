@@ -181,3 +181,20 @@ describe('immutable outgoing request boundary', () => {
     await h.enforcer.verify({ sessionId: 'parent', ...opus })
   })
 })
+describe('status without a live agent', () => {
+  it('reports the saved session override', async () => {
+    const h = setup(); h.agents.delete('parent'); h.overrides.set('parent', step)
+    const s = await h.enforcer.status('parent')
+    expect(s).toMatchObject({ state: 'ready', source: 'session', expected: step }); expect(s.error).toBeUndefined()
+  })
+  it('falls back to the settings default', async () => {
+    const h = setup(); h.agents.delete('parent')
+    const s = await h.enforcer.status('parent')
+    expect(s).toMatchObject({ state: 'ready', source: 'default', expected: glm }); expect(s.error).toBeUndefined()
+  })
+  it('reports follow-main without an expected route when no default exists', async () => {
+    const h = setup(); h.agents.delete('parent'); h.setConfig({})
+    const s = await h.enforcer.status('parent')
+    expect(s).toMatchObject({ state: 'ready', source: 'follow-main' }); expect(s.expected).toBeUndefined(); expect(s.error).toBeUndefined()
+  })
+})

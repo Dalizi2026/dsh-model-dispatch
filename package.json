@@ -1,7 +1,7 @@
 {
   "name": "dsh-model-dispatch",
-  "version": "1.2.0",
-  "description": "DSH plugin: per-session model switching for main agent, subagents, and plan mode / \u4e3a DSH \u7684\u4e3b\u4f1a\u8bdd\u3001\u5b50\u4ee3\u7406\u4e0e\u8ba1\u5212\u6a21\u5f0f\u5206\u522b\u9009\u62e9\u6a21\u578b\u4e0e\u601d\u8003\u5f3a\u5ea6",
+  "version": "1.2.1",
+  "description": "DSH plugin: per-session model switching for main agent, subagents, and plan mode / 为 DSH 的主会话、子代理与计划模式分别选择模型与思考强度",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

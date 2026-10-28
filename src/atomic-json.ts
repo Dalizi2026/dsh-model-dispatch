@@ -1,4 +1,4 @@
-/** Acknowledgements follow data sync, atomic rename and directory sync. */
+/** Acknowledgements follow data sync, atomic rename and (where supported) directory sync. */
 import { mkdir, open, rename, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -11,7 +11,17 @@ export async function writeAtomicJson(path: string, value: unknown): Promise<voi
     try { await file.writeFile(JSON.stringify(value, null, 2)); await file.sync() }
     finally { await file.close() }
     await rename(tmp, path)
+  } catch (cause) { await unlink(tmp).catch(() => {}); throw cause }
+  await syncDirectory(directory)
+}
+/** Windows (and some filesystems) cannot fsync a directory handle; data is already renamed. */
+const UNSUPPORTED_DIR_SYNC = new Set(['EPERM', 'EINVAL', 'ENOTSUP', 'EISDIR'])
+async function syncDirectory(directory: string): Promise<void> {
+  try {
     const parent = await open(directory, 'r')
     try { await parent.sync() } finally { await parent.close() }
-  } catch (cause) { await unlink(tmp).catch(() => {}); throw cause }
+  } catch (cause) {
+    if (UNSUPPORTED_DIR_SYNC.has((cause as NodeJS.ErrnoException)?.code ?? '')) return
+    throw cause
+  }
 }

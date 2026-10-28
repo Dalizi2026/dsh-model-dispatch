@@ -139,6 +139,14 @@ export class RouteEnforcer {
     this.blocked.delete(options.sessionId)
     this.actual.set(options.sessionId, { ...lock.selection })
   }
+  /** Saved session override or settings default, without a live agent; not live-verified. */
+  private savedRoute(id: string): { selection?: ModelSelectionConfig; source: RouteSource } {
+    const session = this.overrides.get(id)
+    if (session !== undefined && validSelection(session)) return { selection: { ...session }, source: 'session' }
+    const route = readRoute(this.current().subagent)
+    if (route?.mode === 'custom' && validSelection(route.selection)) return { selection: { ...route.selection }, source: 'default' }
+    return { source: 'follow-main' }
+  }
   private agent(id: string): RoutingAgent | undefined {
     return (this.ctx.get('agents') as { get(id: string): RoutingAgent | undefined } | undefined)?.get(id)
   }
@@ -176,7 +184,14 @@ export class RouteEnforcer {
         if (this.blocked.has(id)) { value.state = 'blocked'; value.error = this.blocked.get(id) }
       } else {
         const agent = this.agent(id)
-        if (!agent) throw new RouteBlocked('SESSION_UNAVAILABLE', 'Open the session to verify the child route')
+        if (!agent) {
+          // No live agent (e.g. historic session after restart): echo the saved route read-only.
+          // Delegation still runs the full decision/created/verify checks.
+          const saved = this.savedRoute(id)
+          if (saved.selection) value.expected = saved.selection
+          value.source = saved.source; value.state = 'ready'
+          return value
+        }
         const decision = await this.resolve(agent); value.expected = decision.selection; value.source = decision.source
       }
     } catch (cause) { value.state = 'blocked'; value.error = cause instanceof Error ? cause.message : String(cause) }

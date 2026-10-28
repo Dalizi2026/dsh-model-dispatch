@@ -16,7 +16,7 @@ describe('durable child route lock store', () => {
     const fresh = new RouteLockStore(h.path); await fresh.ready()
     expect(fresh.get('a')?.selection.model).toBe('flash'); expect(fresh.get('b')).toEqual(lock('b'))
     fresh.get('a')!.selection.model = 'read mutation'; expect(fresh.get('a')?.selection.model).toBe('flash')
-    expect((await stat(h.path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(h.path)).mode & 0o777).toBe(0o600)
     expect(Object.keys(JSON.parse(await readFile(h.path, 'utf8')).locks)).toEqual(['a', 'b'])
   })
   it('allows one winner during concurrent confirmation and never overwrites a child lock', async () => {

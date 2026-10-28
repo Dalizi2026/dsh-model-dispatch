@@ -62,6 +62,8 @@ export declare class RouteEnforcer {
         model: string;
         reasoningEffort?: string;
     }): Promise<void>;
+    /** Saved session override or settings default, without a live agent; not live-verified. */
+    private savedRoute;
     private agent;
     header(id: string): Promise<RoutingAgent['session']['header'] | undefined>;
     confirm(parentId: string, childId: string, selection: ModelSelectionConfig): Promise<RouteLock>;
