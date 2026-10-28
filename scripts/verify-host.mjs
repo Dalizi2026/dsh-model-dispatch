@@ -9,7 +9,8 @@ const root = process.env.DSH_TEST_MODULE_ROOT
 if (!root || !path.isAbsolute(root)) throw new Error('Set DSH_TEST_MODULE_ROOT to an absolute native node_modules directory')
 const repo = process.env.DSH_TEST_PLUGIN_ROOT ?? fileURLToPath(new URL('..', import.meta.url))
 if (!path.isAbsolute(repo) || !fs.existsSync(path.join(repo, 'package.json'))) throw new Error('Invalid test plugin directory')
-const home = process.env.DSH_TEST_HOME ?? fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-route-120-'))
+const pluginVersion = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version
+const home = process.env.DSH_TEST_HOME ?? fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-route-' + pluginVersion + '-'))
 const phase = process.env.DSH_TEST_PHASE
 if (phase && !['resume', 'historical'].includes(phase)) throw new Error('Unknown verification phase')
 const marker = path.join(home, '.dsh-route-test-home')
@@ -27,7 +28,7 @@ if (phase === 'historical') {
 const profile = path.join(home, 'profiles/route-test')
 fs.mkdirSync(path.join(profile, 'node_modules'), { recursive: true })
 fs.mkdirSync(path.join(home, 'workspace'), { recursive: true })
-if (!fs.existsSync(path.join(profile, 'node_modules/dsh-model-dispatch'))) fs.symlinkSync(repo, path.join(profile, 'node_modules/dsh-model-dispatch'), 'dir')
+if (!fs.existsSync(path.join(profile, 'node_modules/dsh-model-dispatch'))) fs.symlinkSync(repo, path.join(profile, 'node_modules/dsh-model-dispatch'), process.platform === 'win32' ? 'junction' : 'dir')
 fs.writeFileSync(path.join(profile, 'cordis.yml'), '[]\n')
 const GLM = { provider: 'test-glm', model: 'glm-flash', reasoningEffort: 'max' }
 const OPUS = { provider: 'test-opus', model: 'opus', reasoningEffort: 'high' }
@@ -47,30 +48,40 @@ const native = async name => import(pathToFileURL(path.join(root, '@deepseek-ai'
 const { runProfile } = await import(pathToFileURL(path.join(root, '@deepseek-ai/dsh/lib/profile-boot.js')).href)
 const { loadLayeredEnv } = await native('dsh-app-boot')
 const { LlmAdapter, createUserMessage } = await native('dsh-llm')
+// Observe the native engine selected by each preset without replacing its work.
+// Services inside preset groups are intentionally invisible to the root ctx.
+const nativeCompactors = new WeakMap()
+const { BasicCompactionEngine } = await native('dsh-compaction-basic')
+const compactNative = BasicCompactionEngine.prototype.compactIfNeeded
+BasicCompactionEngine.prototype.compactIfNeeded = function (agent, ...args) {
+  nativeCompactors.set(agent, this)
+  return compactNative.call(this, agent, ...args)
+}
 const runtime = await runProfile({ profile: 'route-test', patchFiles: [], environment: loadLayeredEnv('dsh'), args: ['--host', '127.0.0.1', '--port', '0', '--no-open'] })
 const ctx = runtime.ctx
 const version = JSON.parse(fs.readFileSync(path.join(root, '@deepseek-ai/dsh/package.json'))).version
-const evidence = { host: version, phase: phase ?? 'initial', plugin: '1.2.0', paidRequests: 0, calls: [], headers: [], results: [], cases: [] }
+const evidence = { host: version, phase: phase ?? 'initial', plugin: pluginVersion, paidRequests: 0, calls: [], auxiliaryEnvelopes: [], headers: [], results: [], cases: [] }
 const finish = () => { if (process.env.DSH_TEST_REPORT) fs.writeFileSync(process.env.DSH_TEST_REPORT, JSON.stringify(evidence, null, 2)) }
 let cookie = ''
 try {
   const seen = new Map()
   const roots = new Set()
+  let draftOnly = false
   class MockAdapter extends LlmAdapter {
     providerInfo(provider) { return { id: provider, name: provider } }
     async listModels(provider) { return [{ provider, id: ({ 'test-main': 'sonnet', 'test-opus': 'opus', 'test-glm': 'glm-flash', 'test-plan': 'step' })[provider], name: provider }] }
     async resolveModel(provider, model) { return { provider, id: model, name: model, context: { contextWindow: 200000 }, maxTokens: 1000, reasoning: { defaultEffort: provider === 'test-main' || provider === 'test-opus' ? 'high' : 'max', efforts: [{ id: 'high', name: 'High' }, { id: 'max', name: 'Max' }] } } }
     async *stream(options) {
       const route = { provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort }
-      evidence.calls.push({ sessionId: options.sessionId, ...route })
+      evidence.calls.push({ sessionId: options.sessionId, ...route, ...options.purpose ? { purpose: options.purpose } : {} })
       const count = (seen.get(options.sessionId) ?? 0) + 1; seen.set(options.sessionId, count)
       if (count > 12) throw new Error('Verification exceeded the request budget')
       const activePlan = roots.has(options.sessionId) && options.provider === PLAN.provider
       const text = options.messages.flatMap(m => m.content ?? []).filter(p => p.type === 'text').map(p => p.text).join('\n')
       if (phase && options.sessionId === previousChild.sessionId) evidence.historyRetained = text.includes('NESTED_TEST')
       let tool
-      if (!phase && roots.has(options.sessionId) && activePlan) tool = { name: 'exit_plan_mode', args: { plan: '# Verification plan\nAfter approval, reply EXEC_OK without tools.' } }
-      else if (!phase && ((roots.has(options.sessionId) && count === 1) || (!roots.has(options.sessionId) && text.includes('NESTED_TEST') && count === 1))) tool = { name: 'subagent', args: { description: 'conflicting machine Opus preference', prompt: roots.has(options.sessionId) ? 'NESTED_TEST. Reply CHILD_OK.' : 'Reply LEAF_OK. No tools.', provider: OPUS.provider, model: OPUS.model, reasoning_effort: OPUS.reasoningEffort } }
+      if (!phase && roots.has(options.sessionId) && activePlan && !draftOnly && options.purpose !== 'compaction') tool = { name: 'exit_plan_mode', args: { plan: '# Verification plan\nAfter approval, reply EXEC_OK without tools.' } }
+      else if (!phase && options.purpose !== 'compaction' && ((roots.has(options.sessionId) && count === 1) || (!roots.has(options.sessionId) && text.includes('NESTED_TEST') && count === 1))) tool = { name: 'subagent', args: { description: 'conflicting machine Opus preference', prompt: roots.has(options.sessionId) ? 'NESTED_TEST. Reply CHILD_OK.' : 'Reply LEAF_OK. No tools.', provider: OPUS.provider, model: OPUS.model, reasoning_effort: OPUS.reasoningEffort } }
       if (tool) {
         const block = { type: 'tool-call', id: 'call-' + options.sessionId + '-' + count, name: tool.name, arguments: JSON.stringify(tool.args) }
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }; yield { type: 'block-end', index: 0, block }; yield { type: 'finish', reason: { kind: 'tool-calls' } }
@@ -81,6 +92,32 @@ try {
     }
   }
   ctx.llm.registerAdapter(['test-main', 'test-opus', 'test-glm', 'test-plan'], new MockAdapter())
+  ctx.on('llm/stream', async function* (options, next) {
+    if (options.purpose === 'compaction' && options.provider === GLM.provider && options.model === GLM.model && options.reasoningEffort === undefined) {
+      evidence.auxiliaryEnvelopes.push({ sessionId: options.sessionId, provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort })
+      for (const wrong of [{ provider: OPUS.provider }, { model: OPUS.model }, { reasoningEffort: 'high' }]) {
+        await assert.rejects(async () => { for await (const _ of ctx.llm.stream(Object.freeze({ ...options, ...wrong }))) {} }, /Blocked model mismatch/)
+      }
+    }
+    yield* next()
+  }, { prepend: true })
+  const compactedChildren = new Set()
+  if (!phase) ctx.on('agent/created', ({ agent }) => {
+    if (agent.session.header.origin !== 'subagent') return
+    agent.ctx.on('agent/pre-step', async ({ signal }, next) => {
+    const decision = await next()
+    if (decision.kind === 'reject' || signal.aborted || agent.session.header.origin !== 'subagent'
+      || !agent.session.requestHeader() || compactedChildren.size) return decision
+    const compactor = nativeCompactors.get(agent)
+    if (!compactor) { evidence.compactionError = 'native compaction service missing'; throw new Error(evidence.compactionError) }
+    compactedChildren.add(agent.id)
+    try {
+      const result = await compactor.compactIfNeeded(agent, 'context-overflow', signal)
+      assert(result, 'native compaction did not summarize')
+    } catch (cause) { evidence.compactionError = cause.stack; throw cause }
+    return decision
+    }, { prepend: true })
+  })
   ctx.on('session/event', (session, event) => {
     if (event.type === 'tool/result') evidence.results.push({ sessionId: session.header.id, error: event.data.message.isError, text: event.data.message.content?.filter(p => p.type === 'text').map(p => p.text).join('') })
     if (event.type === 'request/header') evidence.headers.push({ sessionId: session.header.id, parentId: session.header.parentSession, origin: session.header.origin, route: event.data.header.config })
@@ -129,7 +166,7 @@ try {
     assert(calls.length > 0, 'resumed child did not dispatch')
     for (const call of calls) { assert.equal(call.provider, expected.provider); assert.equal(call.model, expected.model) }
     const status = await request('route-status?sessionId=' + childId)
-    assert.equal(status.pluginVersion, '1.2.0'); assert.equal(status.policyVersion, 1); evidence.runtimePluginVersion = status.pluginVersion
+    assert.equal(status.pluginVersion, pluginVersion); assert.equal(status.policyVersion, 1); evidence.runtimePluginVersion = status.pluginVersion
     assert.equal(status.state, 'locked'); assert.deepEqual(status.expected, expected); assert.deepEqual(status.actual, expected)
     assert(evidence.historyRetained, 'original context was not retained after resume')
     assert.equal(evidence.calls.filter(c => c.provider === OPUS.provider).length, 0)
@@ -167,9 +204,33 @@ try {
     evidence.cases.push({ name: 'native tool conflict + managed creation + nested child + headers + adapter dispatch', pass: true, childRequests: childHeaders.length, opusDispatches: 0 })
     const child = childHeaders[0].sessionId
     const status = await request('route-status?sessionId=' + child)
-    assert.equal(status.pluginVersion, '1.2.0'); assert.equal(status.policyVersion, 1); evidence.runtimePluginVersion = status.pluginVersion
+    assert.equal(status.pluginVersion, pluginVersion); assert.equal(status.policyVersion, 1); evidence.runtimePluginVersion = status.pluginVersion
     assert.equal(status.state, 'locked'); assert.deepEqual(status.expected, GLM); assert.deepEqual(status.actual, GLM)
     evidence.cases.push({ name: 'authenticated host-acknowledged status', pass: true })
+    // Exercise the real BasicCompactionEngine, not a synthetic purpose bypass.
+    const compactCalls = evidence.calls.filter(c => c.purpose === 'compaction')
+    assert(compactCalls.length > 0, 'missing native compaction adapter call')
+    for (const call of compactCalls) {
+      assert.equal(call.provider, GLM.provider); assert.equal(call.model, GLM.model)
+      assert.equal(call.reasoningEffort, GLM.reasoningEffort, 'adapter should apply the target model default effort')
+    }
+    assert(evidence.auxiliaryEnvelopes.length > 0)
+    for (const envelope of evidence.auxiliaryEnvelopes) assert.equal(envelope.reasoningEffort, undefined)
+    const auxiliary = { provider: GLM.provider, model: GLM.model, sessionId: child, messages: [], purpose: 'compaction' }
+    await assert.rejects(async () => { for await (const _ of ctx.llm.stream(Object.freeze(auxiliary))) {} }, /reasoningEffort/)
+    evidence.cases.push({ name: 'native compaction omits effort without breaking the child lock; purpose alone cannot bypass effort', pass: true })
+    const unknown = await request('route-status?sessionId=missing-test-session')
+    assert.equal(unknown.state, 'missing')
+    const dormantHandle = await ctx.agents.create({ sessionId: 'session-dormant-test', meta: { cwd: path.join(home, 'workspace') }, agentOptions: MAIN })
+    const dormant = { sessionId: dormantHandle.agent.id }
+    await ctx.sessions.flush(dormantHandle.agent.session)
+    await dormantHandle.dispose()
+    assert(!ctx.agents.get(dormant.sessionId), 'dormant session is still live')
+    const dormantStatus = await request('route-status?sessionId=' + dormant.sessionId)
+    assert.equal(dormantStatus.state, 'unverified')
+    await request('session-overrides', { sessionId: dormant.sessionId, selection: GLM })
+    assert.equal((await request('route-status?sessionId=' + dormant.sessionId)).state, 'unverified')
+    evidence.cases.push({ name: 'missing and dormant sessions never claim ready; saved choices remain editable', pass: true })
     if (typeof ctx.subagents.start === 'function') {
       const run = await ctx.subagents.start('spawn', { parent: agent, label: 'legacy direct conflict', signal: new AbortController().signal,
         prompt: [{ type: 'text', text: 'Reply LEGACY_OK. No tools.' }], agentOptions: OPUS, maxDepth: 3 })
@@ -190,6 +251,17 @@ try {
     assert(phase.some(c => c.provider === PLAN.provider), 'planning provider missing after mid-chat /plan')
     assert.equal(phase.at(-1)?.provider, MAIN.provider, 'approval did not restore original main')
     evidence.cases.push({ name: 'mid-chat planning and approval restore', pass: true, routes: phase })
+    draftOnly = true
+    await ctx.commands.execute(agent, '/plan', [], new AbortController().signal)
+    await message('Draft without requesting approval. Reply DRAFT_OK.')
+    assert.equal(evidence.headers.filter(h => h.sessionId === sessionId).at(-1).route.provider, PLAN.provider)
+    // Idle /plan off commits plan/mode:false before the next native pre-step.
+    await ctx.commands.execute(agent, '/plan off', [], new AbortController().signal)
+    await message('Execute with the original main model. Reply EXEC_OK.')
+    assert.equal(evidence.headers.filter(h => h.sessionId === sessionId).at(-1).route.provider, MAIN.provider)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'storages/model-switch/plan-main-models.json'))), {})
+    draftOnly = false
+    evidence.cases.push({ name: 'idle /plan off projection precedes next pre-step and restores main on first request', pass: true })
     await request('session-overrides', { sessionId, selection: PLAN })
     const unchanged = await request('route-status?sessionId=' + child)
     assert.deepEqual(unchanged.expected, GLM, 'later chat selection changed an existing child')
@@ -218,8 +290,14 @@ try {
     evidence.cases.push({ name: 'independent default and cleared plan recovery', pass: true })
   }
   evidence.pass = true
+} catch (cause) {
+  evidence.pass = false
+  evidence.failure = cause instanceof Error ? cause.message : String(cause)
+  process.exitCode = 1
+  console.error('HOST_FAILURE', evidence.failure)
 } finally {
   finish()
   await ctx.fiber.dispose()
+  BasicCompactionEngine.prototype.compactIfNeeded = compactNative
 }
-console.log('HOST_VERIFICATION', JSON.stringify({ host: version, plugin: '1.2.0', pass: evidence.pass, cases: evidence.cases.length, opusDispatches: evidence.calls.filter(c => c.provider === 'test-opus').length }))
+console.log('HOST_VERIFICATION', JSON.stringify({ host: version, plugin: pluginVersion, pass: evidence.pass, cases: evidence.cases.length, opusDispatches: evidence.calls.filter(c => c.provider === 'test-opus').length }))

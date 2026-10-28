@@ -141,6 +141,24 @@ describe('temporary planning models before native model snapshots', () => {
     const h = setup(undefined, true); h.plan.active = true; await h.request(); h.consume(); h.plan.active = false
     expect(await h.request()).toMatchObject(main)
   })
+  for (const exit of ['approval', '/plan off']) {
+    it(`restores when ${exit} is projected before pre-step, and retries failed admission`, async () => {
+      const h = setup(undefined, true)
+      await h.request(); h.plan.active = true
+      expect((await h.request()).model).toBe(smart.model); h.consume()
+      if (exit === 'approval') await h.reviewResult(true)
+      h.plan.active = false
+      h.event('plan/mode', { active: false })
+      await h.commit()
+      h.gate(Promise.reject(new Error('restore unavailable')))
+      await expect(h.request()).rejects.toThrow('restore unavailable')
+      expect(h.mains.get('s1')).toEqual(main)
+      h.gate(Promise.resolve())
+      expect(await h.request()).toMatchObject(main)
+      expect(h.mains.get('s1')).toBeUndefined()
+      h.consume(); expect(await h.request()).toMatchObject(main)
+    })
+  }
   it('preserves a durable original model across restart and direct exit', async () => {
     const first = setup(); first.plan.pending = true; await first.request()
     const resumed = setup(undefined, true, first.mains); resumed.select(smart); resumed.consume(); resumed.plan.active = true

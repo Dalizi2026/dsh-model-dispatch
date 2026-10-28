@@ -3,7 +3,7 @@ import type { ModelSelectionConfig } from './shared.ts'
 export const ROUTE_STATUS_PATH = '/_dsh/model-switch/route-status'
 export const ROUTE_CONFIRM_PATH = '/_dsh/model-switch/confirm-child-route'
 export const ROUTE_POLICY_VERSION = 1
-export const PLUGIN_VERSION = '1.2.1'
+export const PLUGIN_VERSION = '1.2.2'
 export type RouteSource = 'session' | 'default' | 'follow-main' | 'inherited-lock' | 'user-confirmed'
 export interface RouteLock {
   childId: string
@@ -18,7 +18,7 @@ export interface RouteStatus {
   pluginVersion: string
   policyVersion: number
   health: 'loading' | 'ready' | 'blocked'
-  state: 'ready' | 'locked' | 'confirmation-required' | 'blocked'
+  state: 'ready' | 'locked' | 'confirmation-required' | 'blocked' | 'unverified' | 'missing'
   sessionId: string
   parentId?: string
   expected?: ModelSelectionConfig

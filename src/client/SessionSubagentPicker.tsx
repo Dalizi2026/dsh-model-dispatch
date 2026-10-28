@@ -46,14 +46,16 @@ function SessionSubagentPickerLoaded({ sessionId, overrides, store, routes, acce
   const state = routeSnap.value
   const problem = routeSnap.error ?? state?.error ?? snap.error
   const healthy = state?.health === 'ready' && state.state === 'ready' && !problem
-  const routeMessage = state?.state === 'blocked' ? t('routeBlocked') : t('routeUnavailable')
+  const unverified = state?.state === 'unverified'
+  const statusLabel = healthy ? t('routeReady') : problem ? (state?.state === 'missing' ? t('routeSessionMissing') : state?.state === 'blocked' ? t('routeBlocked') : t('routeUnavailable')) : unverified ? t('routeUnverified') : t('statusLoading')
+  const routeMessage = statusLabel
   const write = async (selection?: ModelSelectionConfig): Promise<void> => {
     await overrides.set(sessionId, selection)
     const confirmed = await routes.refresh(sessionId)
-    if (confirmed.health !== 'ready' || confirmed.state !== 'ready') throw new Error(confirmed.error ?? t('routeBlocked'))
+    if (confirmed.health !== 'ready' || !['ready', 'unverified'].includes(confirmed.state)) throw new Error(confirmed.error ?? t('routeBlocked'))
   }
   return <div className={css.wrap}>
     <ModelPicker compact disabled={locked || !state || state.health !== 'ready'} sessionId={sessionId} access={access} value={state?.expected ?? override ?? inherited} onChange={selection => write(selection)} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(override ? 'sessionSource' : defaultRoute ? 'defaultSource' : 'followingMain')} scopeHint={t('subagentScope')} t={t} seed={false} onClear={override ? () => write(undefined) : undefined} clearLabel={t('sessionPickerClear')} />
-    <span className={problem ? css.error : css.status} role="status" aria-label={healthy ? t('routeReady') : problem ? routeMessage : t('statusLoading')} title={healthy ? t('routeReady') : problem ? routeMessage : t('statusLoading')}>{problem ? `${routeMessage}: ${problem}` : healthy ? '✓' : '…'}</span>
+    <span className={problem ? css.error : css.status} role="status" aria-label={statusLabel} title={statusLabel}>{problem ? `${routeMessage}: ${problem}` : healthy ? '✓' : unverified ? t('routeUnverifiedShort') : '…'}</span>
   </div>
 }

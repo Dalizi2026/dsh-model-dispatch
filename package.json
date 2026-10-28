@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-dispatch",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "DSH plugin: per-session model switching for main agent, subagents, and plan mode / 为 DSH 的主会话、子代理与计划模式分别选择模型与思考强度",
   "type": "module",
   "main": "lib/index.js",
@@ -94,15 +94,15 @@
     "@deepseek-ai/dsh-client-ui-settings": "^0.2.0-rc.2 || ^0.2.1-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": "^0.2.0-rc.2 || ^0.2.1-rc.1",
     "@deepseek-ai/dsh-client-ui-user-questions": "^0.2.0-rc.2 || ^0.2.1-rc.1",
+    "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.2 || ^0.2.1-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2 || ^0.2.1-rc.1",
     "@deepseek-ai/dsh-settings": "^0.2.0-rc.2 || ^0.2.1-rc.1",
     "@deepseek-ai/dsh-subagent": "^0.2.0-rc.2 || ^0.2.1-rc.1",
     "@deepseek-ai/dsh-user-questions": "^0.2.0-rc.2 || ^0.2.1-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "zod": "^4.0.0",
-    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2 || ^0.2.1-rc.1",
-    "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.2 || ^0.2.1-rc.1"
+    "zod": "^4.0.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -187,6 +187,7 @@
     "@deepseek-ai/dsh-client-ui-user-questions": "0.2.1-rc.3",
     "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-rc.3",
     "@deepseek-ai/dsh-commands": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-compaction": "0.2.1-rc.3",
     "@deepseek-ai/dsh-compaction-image-offload": "0.2.1-rc.3",
     "@deepseek-ai/dsh-credentials": "0.2.1-rc.3",
     "@deepseek-ai/dsh-fs": "0.2.1-rc.3",
@@ -220,9 +221,11 @@
     "@types/node": "^24.13.3",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.7",
+    "@types/react-test-renderer": "^18.3.1",
     "lightningcss": "^1.33.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-test-renderer": "^18.3.1",
     "tsdown": "0.22.2",
     "typescript": "^5.9.3",
     "unrun": "^0.3.1",

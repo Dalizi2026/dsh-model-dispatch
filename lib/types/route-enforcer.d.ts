@@ -40,6 +40,7 @@ export declare class RouteEnforcer {
     private failure?;
     private initialization?;
     private creation;
+    private compactions;
     private actual;
     private blocked;
     private attached;
@@ -61,6 +62,7 @@ export declare class RouteEnforcer {
         provider: string;
         model: string;
         reasoningEffort?: string;
+        purpose?: string;
     }): Promise<void>;
     /** Saved session override or settings default, without a live agent; not live-verified. */
     private savedRoute;

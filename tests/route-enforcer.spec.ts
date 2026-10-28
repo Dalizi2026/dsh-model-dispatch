@@ -183,18 +183,64 @@ describe('immutable outgoing request boundary', () => {
 })
 describe('status without a live agent', () => {
   it('reports the saved session override', async () => {
-    const h = setup(); h.agents.delete('parent'); h.overrides.set('parent', step)
+    const h = setup(); h.agents.delete('parent'); h.headers.set('parent', { origin: 'user' }); h.overrides.set('parent', step)
     const s = await h.enforcer.status('parent')
-    expect(s).toMatchObject({ state: 'ready', source: 'session', expected: step }); expect(s.error).toBeUndefined()
+    expect(s).toMatchObject({ state: 'unverified', source: 'session', expected: step }); expect(s.error).toBeUndefined()
   })
   it('falls back to the settings default', async () => {
-    const h = setup(); h.agents.delete('parent')
+    const h = setup(); h.agents.delete('parent'); h.headers.set('parent', { origin: 'user' })
     const s = await h.enforcer.status('parent')
-    expect(s).toMatchObject({ state: 'ready', source: 'default', expected: glm }); expect(s.error).toBeUndefined()
+    expect(s).toMatchObject({ state: 'unverified', source: 'default', expected: glm }); expect(s.error).toBeUndefined()
   })
   it('reports follow-main without an expected route when no default exists', async () => {
-    const h = setup(); h.agents.delete('parent'); h.setConfig({})
+    const h = setup(); h.agents.delete('parent'); h.headers.set('parent', { origin: 'user' }); h.setConfig({})
     const s = await h.enforcer.status('parent')
-    expect(s).toMatchObject({ state: 'ready', source: 'follow-main' }); expect(s.expected).toBeUndefined(); expect(s.error).toBeUndefined()
+    expect(s).toMatchObject({ state: 'unverified', source: 'follow-main' }); expect(s.expected).toBeUndefined(); expect(s.error).toBeUndefined()
+  })
+})
+
+describe('auxiliary compaction route boundary', () => {
+  it('allows missing effort only within a native compaction lifecycle, preserving all other checks', async () => {
+    const h = setup(); const { agent } = await h.start(); h.enforcer.installGuards()
+    const request = Object.freeze({ sessionId: agent.id, provider: glm.provider, model: glm.model, purpose: 'compaction' as const })
+    await expect(h.enforcer.verify(request)).rejects.toThrow('reasoningEffort')
+    const emit = (session: unknown, type: string, compactionId = 'c1') => {
+      for (const hook of h.hooks.get('session/event') ?? []) hook(session, { type, data: { compactionId } })
+    }
+    await expect(h.enforcer.verify({ provider: glm.provider, model: glm.model, purpose: 'compaction' })).rejects.toThrow('without session identity')
+    emit(agent.session, 'compaction/start')
+    await expect(h.enforcer.verify(request)).resolves.toBeUndefined()
+    expect((await h.enforcer.status(agent.id)).actual).toEqual({ provider: glm.provider, model: glm.model })
+    await expect(h.enforcer.verify({ ...request, provider: 'expensive' })).rejects.toThrow('provider')
+    await expect(h.enforcer.verify({ ...request, model: 'opus' })).rejects.toThrow('model')
+    await expect(h.enforcer.verify({ ...request, reasoningEffort: 'high' })).rejects.toThrow('reasoningEffort')
+    await expect(h.enforcer.verify(markAgentLoopRequest({ ...request } as never))).rejects.toThrow('reasoningEffort')
+    await expect(h.enforcer.verify({ ...request, sessionId: 'unknown' })).rejects.toThrow('Cannot verify')
+    emit(agent.session, 'compaction/end', 'other')
+    await expect(h.enforcer.verify(request)).resolves.toBeUndefined()
+    emit(agent.session, 'compaction/end')
+    await expect(h.enforcer.verify(request)).rejects.toThrow('reasoningEffort')
+    await h.enforcer.verify({ sessionId: agent.id, ...glm })
+    expect((await h.enforcer.status(agent.id))).toMatchObject({ state: 'locked', actual: glm })
+  })
+  it('does not use another child’s compaction to relax effort or ownership', async () => {
+    const h = setup(); const a = (await h.start()).agent; const b = (await h.start('b')).agent; h.enforcer.installGuards()
+    for (const hook of h.hooks.get('session/event') ?? []) hook(a.session, { type: 'compaction/start', data: { compactionId: 'c1' } })
+    await expect(h.enforcer.verify({ sessionId: b.id, provider: glm.provider, model: glm.model, purpose: 'compaction' })).rejects.toThrow()
+    a.session.header.parentSession = 'foreign'
+    await expect(h.enforcer.verify({ sessionId: a.id, provider: glm.provider, model: glm.model, purpose: 'compaction' })).rejects.toThrow('lock is required')
+  })
+})
+describe('unverified saved route status', () => {
+  it('diagnoses missing sessions without claiming a ready route', async () => {
+    const h = setup()
+    expect(await h.enforcer.status('does-not-exist')).toMatchObject({ health: 'ready', state: 'missing', error: expect.stringContaining('does not exist') })
+  })
+  it('validates saved route availability even without a live agent', async () => {
+    const h = setup(); h.agents.delete('parent'); h.headers.set('parent', { origin: 'user' })
+    h.overrides.set('parent', { provider: 'glm', model: 'invalid' })
+    expect(await h.enforcer.status('parent')).toMatchObject({ state: 'blocked', error: 'Model unavailable' })
+    h.overrides.set('parent', step)
+    expect(await h.enforcer.status('parent')).toMatchObject({ state: 'unverified', expected: step })
   })
 })

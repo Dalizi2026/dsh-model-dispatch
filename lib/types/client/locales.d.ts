@@ -53,6 +53,10 @@ export declare const zh: {
     cancel: string;
     applySelection: string;
     routeUnavailable: string;
+    routeUnverified: string;
+    routeUnverifiedShort: string;
+    routeSessionMissing: string;
+    planMainLoadError: string;
     routeReady: string;
     routeLocked: string;
     routeBlocked: string;
@@ -123,6 +127,10 @@ export declare const en: {
     cancel: string;
     applySelection: string;
     routeUnavailable: string;
+    routeUnverified: string;
+    routeUnverifiedShort: string;
+    routeSessionMissing: string;
+    planMainLoadError: string;
     routeReady: string;
     routeLocked: string;
     routeBlocked: string;

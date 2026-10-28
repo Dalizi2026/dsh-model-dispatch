@@ -1,0 +1,45 @@
+name: Regression
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm pack --ignore-scripts
+  native-host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install official isolated DSH runtime
+        run: npm install --prefix .native-host --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.3 @deepseek-ai/dsh-web-app@0.2.1-rc.3
+      - name: Native host regressions (mock adapters, no paid requests)
+        run: node --input-type=module -e "import path from 'node:path'; process.env.DSH_TEST_MODULE_ROOT = path.resolve('.native-host/node_modules'); process.env.DSH_TEST_REPORT = path.resolve('native-host-report.json'); await import('./scripts/verify-host.mjs');"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-host-${{ matrix.os }}
+          path: native-host-report.json

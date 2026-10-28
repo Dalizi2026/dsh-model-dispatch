@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { isAgentLoopRequest, type GenerateOptions, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-compaction'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import { readRoute } from './config.ts'
 import { sameSelection, type Config, type ModelSelectionConfig } from './shared.ts'
@@ -30,6 +31,7 @@ export class RouteEnforcer {
   private failure?: string
   private initialization?: Promise<void>
   private creation = new AsyncLocalStorage<Creation>()
+  private compactions = new WeakMap<object, string>()
   private actual = new Map<string, ModelSelectionConfig>()
   private blocked = new Map<string, string>()
   private attached = new WeakSet<object>()
@@ -117,10 +119,10 @@ export class RouteEnforcer {
     const { reasoningEffort: _oldEffort, ...rest } = seed
     return { ...rest, provider: lock.selection.provider, model: lock.selection.model, ...lock.selection.reasoningEffort === undefined ? {} : { reasoningEffort: lock.selection.reasoningEffort as LlmCallConfig['reasoningEffort'] } }
   }
-  async verify(options: { sessionId?: string; provider: string; model: string; reasoningEffort?: string }): Promise<void> {
+  async verify(options: { sessionId?: string; provider: string; model: string; reasoningEffort?: string; purpose?: string }): Promise<void> {
     const loop = isAgentLoopRequest(options as GenerateOptions)
     if (!options.sessionId) {
-      if (loop) throw new RouteBlocked('MISSING_SESSION', 'A loop request without session identity cannot be verified')
+      if (loop || options.purpose === 'compaction') throw new RouteBlocked('MISSING_SESSION', 'A loop or compaction request without session identity cannot be verified')
       return
     }
     const agent = this.agent(options.sessionId)
@@ -131,20 +133,37 @@ export class RouteEnforcer {
     if (!child) return
     await this.ready()
     if (!lock || (header && lock.parentId !== header.parentSession)) throw new RouteBlocked('MODEL_CONFIRMATION_REQUIRED', 'A verified child model lock is required before dispatch')
-    if (!sameSelection(lock.selection, options)) {
-      const reason = `Blocked model mismatch: expected ${lock.selection.provider}/${lock.selection.model}, received ${options.provider}/${options.model}`
+    // Only the native, currently open compaction transaction may omit effort.
+    // A public purpose string alone never relaxes the lock, nor does a loop
+    // request carrying that string. Provider/model and ownership stay exact.
+    const compactDefault = !loop && options.purpose === 'compaction' && options.reasoningEffort === undefined
+      && agent !== undefined && this.compactions.has(agent.session)
+    const fields = ['provider', 'model', 'reasoningEffort'] as const
+    const mismatches = fields.filter(key => !(key === 'reasoningEffort' && compactDefault) && lock.selection[key] !== options[key])
+    if (mismatches.length) {
+      const reason = 'Blocked model mismatch: ' + mismatches.map(key =>
+        `${key} expected ${JSON.stringify(lock.selection[key]) ?? '<default>'}, received ${JSON.stringify(options[key]) ?? '<default>'}`).join('; ')
       this.blocked.set(options.sessionId, reason)
       throw new RouteBlocked('MODEL_ROUTE_MISMATCH', reason)
     }
     this.blocked.delete(options.sessionId)
-    this.actual.set(options.sessionId, { ...lock.selection })
+    this.actual.set(options.sessionId, { provider: options.provider, model: options.model,
+      ...options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort } })
   }
+
   /** Saved session override or settings default, without a live agent; not live-verified. */
   private savedRoute(id: string): { selection?: ModelSelectionConfig; source: RouteSource } {
     const session = this.overrides.get(id)
-    if (session !== undefined && validSelection(session)) return { selection: { ...session }, source: 'session' }
+    if (session !== undefined) {
+      if (!validSelection(session)) throw new RouteBlocked('INVALID_USER_SELECTION', 'The saved session child model is invalid')
+      return { selection: { ...session }, source: 'session' }
+    }
     const route = readRoute(this.current().subagent)
-    if (route?.mode === 'custom' && validSelection(route.selection)) return { selection: { ...route.selection }, source: 'default' }
+    if (route !== undefined && route.mode !== 'custom' && route.mode !== 'follow-main') throw new RouteBlocked('INVALID_USER_SELECTION', 'Unknown child model mode')
+    if (route?.mode === 'custom') {
+      if (!validSelection(route.selection)) throw new RouteBlocked('INVALID_USER_SELECTION', 'The configured child model is incomplete')
+      return { selection: { ...route.selection }, source: 'default' }
+    }
     return { source: 'follow-main' }
   }
   private agent(id: string): RoutingAgent | undefined {
@@ -172,7 +191,11 @@ export class RouteEnforcer {
     try {
       await this.ready()
       const header = await this.header(id)
-      if (header?.origin === 'subagent' || this.locks.get(id)) {
+      if (!header) {
+        value.state = 'missing'; value.error = 'Session does not exist or is unavailable'
+        return value
+      }
+      if (header.origin === 'subagent' || this.locks.get(id)) {
         value.parentId = header?.parentSession ?? this.locks.get(id)?.parentId
         const lock = this.locks.get(id)
         if (!lock) { value.state = 'confirmation-required'; return value }
@@ -185,11 +208,11 @@ export class RouteEnforcer {
       } else {
         const agent = this.agent(id)
         if (!agent) {
-          // No live agent (e.g. historic session after restart): echo the saved route read-only.
-          // Delegation still runs the full decision/created/verify checks.
+          // Saved selection remains editable, but without live parent state it
+          // is not a verified delegation route and must never receive a checkmark.
           const saved = this.savedRoute(id)
-          if (saved.selection) value.expected = saved.selection
-          value.source = saved.source; value.state = 'ready'
+          value.source = saved.source; value.state = 'unverified'
+          if (saved.selection) value.expected = await this.admit(saved.selection)
           return value
         }
         const decision = await this.resolve(agent); value.expected = decision.selection; value.source = decision.source
@@ -207,6 +230,10 @@ export class RouteEnforcer {
     this.requestGuards.set(agent, dispose)
   }
   installGuards(): void {
+    this.ctx.on('session/event', (session, event): undefined => {
+      if (event.type === 'compaction/start') this.compactions.set(session, event.data.compactionId)
+      else if (event.type === 'compaction/end' && this.compactions.get(session) === event.data.compactionId) this.compactions.delete(session)
+    }, { global: true })
     this.ctx.on('agent/created', async ({ agent }) => { await this.created(agent as unknown as RoutingAgent) })
     this.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const agent = context.agent

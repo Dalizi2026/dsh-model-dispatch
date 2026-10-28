@@ -6,3 +6,7 @@ node_modules/
 VERIFICATION-BRIEF.md
 opencode-go-probe-brief.md
 *.log
+
+# Isolated CI host runtime and its private verification report
+.native-host/
+native-host-report.json
