@@ -35,7 +35,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Install official isolated DSH runtime
-        run: npm install --prefix .native-host --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.3 @deepseek-ai/dsh-web-app@0.2.1-rc.3
+        run: npm install --prefix .native-host --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 @deepseek-ai/dsh-web-app@0.2.1-rc.5
       - name: Native host regressions (mock adapters, no paid requests)
         run: node --input-type=module -e "import path from 'node:path'; process.env.DSH_TEST_MODULE_ROOT = path.resolve('.native-host/node_modules'); process.env.DSH_TEST_REPORT = path.resolve('native-host-report.json'); await import('./scripts/verify-host.mjs');"
       - uses: actions/upload-artifact@v4

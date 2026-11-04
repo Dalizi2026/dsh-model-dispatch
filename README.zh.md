@@ -4,7 +4,7 @@
 
 为 DeepSeek Harness (DSH) 的主会话、子代理与计划模式分别选择模型与思考强度。
 
-> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.3** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
+> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
 
 ## 功能
 
@@ -31,7 +31,7 @@
 
 ## 安装
 
-以 **DeepSeek Harness 0.2.1-rc.3** 为适配基线，覆盖 rc.2、rc.1 和 0.2.0-rc.2 的原生入口回归。其他版本需重新验证。
+以 **DeepSeek Harness Desktop 0.2.1-rc.5** 为适配基线，验证范围见 [1.2.3 兼容说明](docs/1.2.3-compatibility.md)。独立的 0.2.2 alpha 分支不在此次兼容声明内。
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch

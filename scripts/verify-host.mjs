@@ -86,7 +86,7 @@ try {
         const block = { type: 'tool-call', id: 'call-' + options.sessionId + '-' + count, name: tool.name, arguments: JSON.stringify(tool.args) }
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }; yield { type: 'block-end', index: 0, block }; yield { type: 'finish', reason: { kind: 'tool-calls' } }
       } else {
-        const block = { type: 'text', text: 'ROUTE_TEST_OK' }
+        const block = { type: 'text', text: options.purpose === 'compaction' ? 'NESTED_TEST compacted context. ROUTE_TEST_OK' : 'ROUTE_TEST_OK' }
         yield { type: 'block-start', index: 0, blockType: 'text' }; yield { type: 'text-delta', index: 0, text: block.text }; yield { type: 'block-end', index: 0, block }; yield { type: 'finish', reason: { kind: 'stop' } }
       }
     }
