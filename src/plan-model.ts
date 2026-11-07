@@ -18,16 +18,32 @@ interface ProjectionFace {
 }
 interface PlanState { active: boolean; wanted?: boolean | null }
 interface SelectionState { pending?: ModelSelectionConfig | null; lastUsed?: ModelSelectionConfig | null }
+type ToolExecute = (args: unknown, exec: { agent?: Agent }) => Promise<unknown>
+interface ToolFace { execute: ToolExecute }
+interface CommandsFace { execute?: (agent: Agent, line: string, ...rest: unknown[]) => Promise<unknown> }
 export interface PlanMainStore {
   ready?(): Promise<void>
   get(id: string): ModelSelectionConfig | undefined
   set(id: string, selection: ModelSelectionConfig | undefined): Promise<void>
 }
 
+/** The canonical review outcome, or undefined when the result has no boolean `approved`. */
+function approvalOf(value: unknown): boolean | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const approved = (value as { approved?: unknown }).approved
+  return typeof approved === 'boolean' ? approved : undefined
+}
+
 /**
  * `agentDefaultModel` is required with the controller: without the default
  * protection the native selection would save the planning model as the
  * new-chat default, so the switch stays off whenever that protection is.
+ *
+ * Hosts differ in when a step's route is fixed: DSH 0.2.1 reads it during
+ * prompt assembly, DSH 0.2.2 before it. So the switch also runs when the
+ * intent happens, inside `/plan` and an approved exit tool call, which both
+ * hosts await before the next step. Assembly remains the fallback for
+ * recovery and for hosts without those optional seams.
  */
 export function installPlanModelSwitch(ctx: Context, current: () => Config, mains: PlanMainStore, seams: HostSeams): void {
   ctx.inject(['sessionProjections', 'sessionController', 'agentDefaultModel'], (scope) => {
@@ -41,10 +57,9 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
     // boolean value, restoration waits for the plan-mode exit instead.
     scope.on('tools/result', (exec, result): undefined => {
       if (exec.name !== 'exit_plan_mode' || !exec.agent || result.isError) return
-      const value = result.value
-      const shaped = typeof value === 'object' && value !== null && !Array.isArray(value) && typeof value.approved === 'boolean'
-      seams.observe('plan-switch', PLAN_APPROVED_SEAM, shaped)
-      if (shaped && value.approved === true) approvals.add(exec.agent.session)
+      const approved = approvalOf(result.value)
+      seams.observe('plan-switch', PLAN_APPROVED_SEAM, approved !== undefined)
+      if (approved === true) approvals.add(exec.agent.session)
     })
     scope.on('session/event', (session, event): undefined => {
       // A fresh planning intent supersedes an approval received just before
@@ -52,17 +67,17 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
       if ((event.type === 'command/run' && event.data.name === 'plan' && event.data.args?.trim() !== 'off')
         || (event.type === 'plan/mode' && event.data.active)) approvals.delete(session)
     }, { global: true })
+
     // modes tracks the route transition we applied, not the native projection.
-    // A pre-step may already observe plan/mode:false before this assembly.
-    scope.on('system-prompt/assemble', async (_assembly, context, next) => {
-      const agent = context.agent
-      if (agent === undefined || agent.session.header.origin === 'subagent') return next()
+    // A pre-step may already observe plan/mode:false before this runs.
+    const apply = async (agent: Agent, signal?: AbortSignal): Promise<void> => {
+      if (agent.session.header.origin === 'subagent') return
       // Switched off, not paused: the chat continues on its current model and
       // a pending transition is applied once the seams return.
-      if (seams.check('plan-switch').missing.length) return next()
+      if (seams.check('plan-switch').missing.length) return
       const session = agent.session
       const logged = projections.stateOf(session, 'plan') as PlanState | undefined
-      if (logged === undefined) return next()
+      if (logged === undefined) return
       await mains.ready?.()
       const boundary = projections.stateOf(session, PLAN_BOUNDARY_KEY) as BoundaryState | undefined
       const mode = (scope.get('planMode') as PlanModeFace | undefined)?.get(agent)
@@ -71,10 +86,10 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
       const approved = approvals.has(session) || boundary?.approved === true
       const active = mode?.pending ?? (approved ? false : mode?.active ?? logged.wanted ?? logged.active)
       const previous = modes.get(session)
-      if (previous === active && (active || mains.get(agent.id) === undefined)) return next()
+      if (previous === active && (active || mains.get(agent.id) === undefined)) return
       const entering = active && previous !== true
       const leaving = !active && (previous === true || logged.active || mains.get(agent.id) !== undefined)
-      if (!entering && !leaving) { modes.set(session, active); return next() }
+      if (!entering && !leaving) { modes.set(session, active); return }
       const selection = projections.stateOf(session, 'modelSelection') as SelectionState | undefined
       const selected = selection?.pending ?? selection?.lastUsed
       let route: ModelSelectionConfig | undefined
@@ -96,7 +111,7 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
         route = mains.get(agent.id) ?? boundary?.main
         if (route === undefined) throw new Error('Cannot restore the main model: no saved pre-plan selection')
       }
-      context.signal?.throwIfAborted()
+      signal?.throwIfAborted()
       if (route !== undefined && !sameSelection(route, selected)) {
         await scope.sessionController.selectModel({
           sessionId: agent.id, provider: route.provider, model: route.model,
@@ -109,6 +124,74 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
       }
       // Record only after admission succeeds; a failed restore must retry.
       modes.set(session, active)
+    }
+    // One transition at a time per session: a command, the exit tool and an
+    // assembly may overlap, and each must see the previous one's result.
+    const queue = new WeakMap<object, Promise<void>>()
+    const sync = (agent: Agent, signal?: AbortSignal): Promise<void> => {
+      const settled = (queue.get(agent.session) ?? Promise.resolve()).catch(() => {})
+      const run = settled.then(() => apply(agent, signal))
+      queue.set(agent.session, run)
+      return run
+    }
+    // At an intent the switch is an early start: a failure is logged and the
+    // next assembly retries it, where an error reaches the request as before.
+    const early = async (agent: Agent): Promise<void> => {
+      try { await sync(agent) } catch (cause) { scope.logger?.warn('Model switch: plan model switch will retry at the next request', cause) }
+    }
+
+    // Optional seam `commands.execute`: /plan and /plan off commit or queue
+    // the plan state, then switch before the caller sends the next message.
+    scope.inject(['commands'], command => {
+      const commands = command.commands as unknown as CommandsFace
+      command.effect(() => {
+        const execute = commands.execute
+        if (typeof execute !== 'function') return () => {}
+        const wrapped: typeof execute = async (agent, line, ...rest) => {
+          const result = await execute.call(commands, agent, line, ...rest)
+          if (typeof line === 'string' && /^\/plan(?:\s|$)/.test(line.trim())) await early(agent)
+          return result
+        }
+        commands.execute = wrapped
+        return () => { if (commands.execute === wrapped) commands.execute = execute }
+      }, 'model-switch: plan switch at /plan')
+    })
+
+    // Optional seam `tools.get`: the exit tool is adapted once it is visible
+    // to an agent, so an approval restores main before the next step.
+    const exitTools = new WeakMap<ToolFace, { original: ToolExecute; wrapped: ToolExecute }>()
+    const adapted = new Set<WeakRef<ToolFace>>()
+    const adaptExitTool = (agent: Agent): void => {
+      const tools = scope.get('tools') as { get?(name: string, agent: Agent): ToolFace | undefined } | undefined
+      const definition = typeof tools?.get === 'function' ? tools.get('exit_plan_mode', agent) : undefined
+      if (!definition || typeof definition.execute !== 'function' || exitTools.has(definition)) return
+      const original = definition.execute
+      const wrapped: ToolExecute = async (args, exec) => {
+        const value = await original.call(definition, args, exec)
+        if (exec?.agent && approvalOf(value) === true) {
+          approvals.add(exec.agent.session)
+          await early(exec.agent)
+        }
+        return value
+      }
+      definition.execute = wrapped
+      exitTools.set(definition, { original, wrapped })
+      adapted.add(new WeakRef(definition))
+    }
+    scope.effect(() => () => {
+      for (const reference of adapted) {
+        const definition = reference.deref()
+        const saved = definition && exitTools.get(definition)
+        if (definition && saved && definition.execute === saved.wrapped) definition.execute = saved.original
+      }
+      adapted.clear()
+    }, 'model-switch: plan switch at approval')
+
+    scope.on('system-prompt/assemble', async (_assembly, context, next) => {
+      const agent = context.agent
+      if (agent === undefined || agent.session.header.origin === 'subagent') return next()
+      await sync(agent, context.signal)
+      adaptExitTool(agent)
       context.signal?.throwIfAborted()
       return next()
     }, { prepend: true })

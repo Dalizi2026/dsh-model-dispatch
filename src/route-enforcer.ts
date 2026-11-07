@@ -104,7 +104,7 @@ export class RouteEnforcer {
     if (agent.session.header.origin !== 'subagent') return
     await this.ready()
     const existing = this.locks.get(agent.id)
-    if (existing) { this.requireLock(agent); return }
+    if (existing) { this.align(agent, this.requireLock(agent).selection); return }
     const pending = this.creation.getStore()
     if (!pending || pending.parentId !== agent.session.header.parentSession) {
       this.blocked.set(agent.id, 'Confirm the model for this historical subagent before continuing')
@@ -193,7 +193,19 @@ export class RouteEnforcer {
     if (this.locks.get(childId)) throw new RouteBlocked('ALREADY_LOCKED', 'This child already has a locked model')
     const lock: RouteLock = { childId, parentId, selection: await this.admit(selection), source: 'user-confirmed', policyVersion: 1, revision: randomUUID() }
     await this.locks.set(lock); this.blocked.delete(childId)
+    const live = this.agent(childId)
+    if (live) this.align(live, lock.selection)
     return lock
+  }
+  /**
+   * Optional seam `agent.model.select`: hosts that fix a step's route from the
+   * recorded selection before `agent/request` (DSH 0.2.2) reject a different
+   * route there, so record the lock first. Without the method the request
+   * guard rewrites the route; either way a mismatch is never dispatched.
+   */
+  private align(agent: RoutingAgent, selection: ModelSelectionConfig): void {
+    const model = (agent as { model?: { select?(selection: ModelSelectionConfig): void } }).model
+    if (typeof model?.select === 'function') model.select({ ...selection })
   }
   async status(id: string): Promise<RouteStatus> {
     await this.initialize()

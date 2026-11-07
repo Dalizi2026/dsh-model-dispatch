@@ -39,7 +39,7 @@
 
 ## 安装
 
-任何 DSH 版本都可以安装，能运行哪些功能由宿主接缝决定。跑通完整契约测试的 DSH 版本见[已验证版本](docs/verified-versions.md)，它只是证据，不是安装条件。在 0.2.2-rc.1 上，计划自动换模会晚一次请求生效，详见该记录。
+任何 DSH 版本都可以安装，能运行哪些功能由宿主接缝决定。跑通完整契约测试的 DSH 版本见[已验证版本](docs/verified-versions.md)，它只是证据，不是安装条件。
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch

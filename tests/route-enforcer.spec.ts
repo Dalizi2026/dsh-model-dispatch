@@ -132,6 +132,21 @@ describe('user model authority across child lifetimes', () => {
   })
 })
 describe('cold and historical children', () => {
+  // DSH 0.2.2 fixes a step's route from the recorded selection before
+  // agent/request and rejects a different proposal there.
+  const selectable = (agent: RoutingAgent) => Object.assign(agent, { model: { select: vi.fn() } }).model.select
+  it('records the confirmed model on a live historical child before its next step', async () => {
+    const h = setup(); const agent = h.child(); const select = selectable(agent)
+    await h.enforcer.created(agent); expect(select).not.toHaveBeenCalled()
+    await h.enforcer.confirm('parent', agent.id, step)
+    expect(select).toHaveBeenCalledExactlyOnceWith(step)
+  })
+  it('records the saved lock on a cold child as it is created again', async () => {
+    const h = setup(); await h.start()
+    const resumed = h.child(); const select = selectable(resumed)
+    await h.enforcer.created(resumed)
+    expect(select).toHaveBeenCalledExactlyOnceWith(glm)
+  })
   it('attaches to already live historical children on HMR and keeps their context after confirmation', async () => {
     const h = setup(); const child = Object.assign(h.child(), { ctx: new Context() })
     h.enforcer.installGuards()

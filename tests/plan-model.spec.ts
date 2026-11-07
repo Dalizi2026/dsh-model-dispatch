@@ -37,14 +37,31 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
     } },
     agentDefaultModel: { saveSelection() {} },
   }
-  const seams = new HostSeams({ get: (name: string) => services[name], logger: { warn() {}, info() {} } } as never)
-  installPlanModelSwitch({
-    inject(_deps: string[], apply: (ctx: unknown) => void) {
-      apply({ on: events.on.bind(events), get: () => isolated ? undefined : ({ get: () => plan }), ...services })
-    },
-  } as never, () => config, mains, seams)
+  // Native /plan and exit tool stand-ins: like DSH 0.2.2 between turns, the
+  // command commits plan state at once and approval queues the exit.
+  const commands = { async execute(_agent: unknown, line: string) {
+    if (line.trim() === '/plan') plan.active = true
+    if (line.trim() === '/plan off') plan.active = false
+    return { ok: true }
+  } }
+  const exitTool = { name: 'exit_plan_mode', async execute(args: { approve: boolean }) {
+    if (args.approve) plan.pending = false
+    return { approved: args.approve }
+  } }
+  const optional: Record<string, unknown> = { commands, tools: { get: (name: string) => name === 'exit_plan_mode' ? exitTool : undefined } }
+  const lookup = (name: string) => name === 'planMode' ? (isolated ? undefined : { get: () => plan }) : optional[name] ?? services[name]
+  const seams = new HostSeams({ get: lookup, logger: { warn() {}, info() {} } } as never)
+  const disposers: (() => void)[] = []
+  const scope: Record<string, unknown> = { on: events.on.bind(events), get: lookup, ...services, ...optional,
+    logger: { warn() {}, info() {} },
+    effect(install: () => () => void) { disposers.push(install()) },
+    inject(deps: string[], apply: (ctx: unknown) => void) { if (deps.every(name => lookup(name) !== undefined)) apply(scope) } }
+  installPlanModelSwitch(scope as never, () => config, mains, seams)
   return {
-    session, agent, plan, projected, calls, mains, services, seams,
+    session, agent, plan, projected, calls, mains, services, seams, commands, exitTool, optional,
+    /** The route a host that fixes it before assembly (DSH 0.2.2) would use for the next step. */
+    nextRoute: () => selected.current,
+    dispose() { for (const dispose of disposers.splice(0).reverse()) dispose() },
     gate(promise: Promise<void>) { admission = promise },
     event(type: string, data: any) {
       boundary = planBoundaryDefinition.apply(boundary, { type, data })
@@ -201,6 +218,44 @@ describe('temporary planning models before native model snapshots', () => {
     const h = setup(); h.plan.pending = true; await h.request(); h.consume(); h.plan.active = true; h.approve()
     h.gate(Promise.reject(new Error('unavailable'))); await expect(h.request()).rejects.toThrow('unavailable')
     expect(h.mains.get('s1')).toEqual(main); h.gate(Promise.resolve()); expect(await h.request()).toMatchObject(main)
+  })
+})
+
+describe('switching when the plan intent happens', () => {
+  it('records the planning model while /plan runs, before the next step fixes its route', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.consume()
+    await h.commands.execute(h.agent, '/plan')
+    expect(h.nextRoute()).toMatchObject(smart); expect(h.mains.get('s1')).toEqual(main)
+    expect((await h.request()).model).toBe(smart.model); expect(h.calls).toHaveLength(1)
+  })
+  it('restores the main model while /plan off runs', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.consume(); await h.commands.execute(h.agent, '/plan'); h.consume()
+    await h.commands.execute(h.agent, '/plan off')
+    expect(h.nextRoute()).toMatchObject(main); expect(h.mains.get('s1')).toBeUndefined()
+  })
+  it('restores the main model inside an approved exit tool call, and keeps planning on a rejected one', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.consume(); await h.commands.execute(h.agent, '/plan'); h.consume()
+    await h.request()
+    await expect(h.exitTool.execute({ approve: false }, { agent: h.agent } as never)).resolves.toEqual({ approved: false })
+    expect(h.nextRoute()).toMatchObject(smart)
+    await expect(h.exitTool.execute({ approve: true }, { agent: h.agent } as never)).resolves.toEqual({ approved: true })
+    expect(h.nextRoute()).toMatchObject(main); expect(h.mains.get('s1')).toBeUndefined()
+  })
+  it('restores the native command and tool on unload', async () => {
+    const h = setup(undefined, true); const nativeExit = h.exitTool.execute
+    await h.request(); expect(h.exitTool.execute).not.toBe(nativeExit)
+    h.dispose(); expect(h.exitTool.execute).toBe(nativeExit)
+    await h.commands.execute(h.agent, '/plan'); expect(h.calls).toEqual([])
+  })
+  it('falls back to switching at assembly when the host has no commands service', async () => {
+    const h = setup(undefined, true)
+    delete h.optional.commands
+    await h.request(); h.consume(); h.plan.active = true
+    expect(h.nextRoute()).toMatchObject(main)
+    expect((await h.request()).model).toBe(smart.model)
   })
 })
 

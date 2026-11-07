@@ -29,7 +29,7 @@ Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions 
 
 ## Install
 
-Installs on any DSH version; host seams decide what runs. DSH versions where the full contract suite passed are listed in [verified versions](docs/verified-versions.md) (Chinese): evidence, not an install condition. On 0.2.2-rc.1, plan auto-switch takes effect one request late; see that record.
+Installs on any DSH version; host seams decide what runs. DSH versions where the full contract suite passed are listed in [verified versions](docs/verified-versions.md) (Chinese): evidence, not an install condition.
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch

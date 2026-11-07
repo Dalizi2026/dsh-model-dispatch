@@ -73,6 +73,13 @@ export declare class RouteEnforcer {
     private agent;
     header(id: string): Promise<RoutingAgent['session']['header'] | undefined>;
     confirm(parentId: string, childId: string, selection: ModelSelectionConfig): Promise<RouteLock>;
+    /**
+     * Optional seam `agent.model.select`: hosts that fix a step's route from the
+     * recorded selection before `agent/request` (DSH 0.2.2) reject a different
+     * route there, so record the lock first. Without the method the request
+     * guard rewrites the route; either way a mismatch is never dispatched.
+     */
+    private align;
     status(id: string): Promise<RouteStatus>;
     private attachRequestGuard;
     installGuards(): void;
