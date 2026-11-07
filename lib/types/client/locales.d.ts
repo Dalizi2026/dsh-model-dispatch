@@ -30,7 +30,6 @@ export declare const zh: {
     planModelLabel: string;
     sessionPickerAria: string;
     sessionPickerDefault: string;
-    sessionPickerClear: string;
     codeCopy: string;
     codeCopied: string;
     footnotes: string;
@@ -121,7 +120,6 @@ export declare const en: {
     planModelLabel: string;
     sessionPickerAria: string;
     sessionPickerDefault: string;
-    sessionPickerClear: string;
     codeCopy: string;
     codeCopied: string;
     footnotes: string;

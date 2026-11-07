@@ -3,7 +3,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncEx
 import { createPortal } from 'react-dom'
 import type { ModelCatalog, ModelSelection, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { IconCheckOutlineMedium, IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ModelSelectionConfig } from '../shared.ts'
+import { sameSelection, type ModelSelectionConfig } from '../shared.ts'
 import { effortOf, favoriteRows, hasFavorite, isFavorite, MAX_FAVORITES, modelKey, modelPreferences, recentRows, startingEffort, type Effort, type FavoriteChoice, type ModelPreferences, type ShortcutChip, type ShortcutRow } from './model-preferences.ts'
 import type { LocaleKey } from './locales.ts'
 import css from './ModelPicker.module.css'
@@ -99,6 +99,8 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const draftTitle = [draftModel?.name ?? draft?.model, draftEffortName].filter(Boolean).join(' · ')
   const draftFavorite = draft !== undefined && isFavorite(preferences, draft)
   const favoritesFull = !draftFavorite && preferences.favorites.length >= MAX_FAVORITES
+  // Applying an untouched draft would silently pin an inherited route, so Apply waits for a change.
+  const unchanged = !inherit && sameSelection(draft, value)
   const close = (focus = false): void => {
     if (savingRef.current) return
     setOpen(false); if (focus) triggerRef.current?.focus()
@@ -177,7 +179,7 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   }
   const apply = (): void => {
     if (inherit && onClear !== undefined) commit(onClear)
-    else if (draft !== undefined && draftModel !== undefined) commit(() => onChange(draft), draft)
+    else if (!unchanged && draft !== undefined && draftModel !== undefined) commit(() => onChange(draft), draft)
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') { event.preventDefault(); close(true); return }
@@ -283,11 +285,11 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
             </section>)}
             {!loading && visible.length === 0 && <div className={css.empty}>{t(normalized ? 'noResults' : 'emptyModels')}</div>}
           </div>
-          {onClear && <button className={css.clear} type="button" aria-pressed={inherit} disabled={blocked} onClick={() => { setInherit(true); setNotice(null) }}>{clearLabel ?? t('sessionPickerClear')}{inherit && <IconCheckOutlineMedium className={css.check} />}</button>}
+          {onClear && <button className={css.clear} type="button" aria-pressed={inherit} disabled={blocked} onClick={() => { setInherit(true); setNotice(null) }}>{clearLabel ?? t('modeFollow')}{inherit && <IconCheckOutlineMedium className={css.check} />}</button>}
           <div className={css.selectionEditor}>
             <div className={css.draftSummary}>
               <div className={css.draftCopy}>
-                <span className={css.modelName}>{inherit ? clearLabel ?? t('sessionPickerClear') : draft === undefined ? t('triggerFallback') : draftTitle}</span>
+                <span className={css.modelName}>{inherit ? clearLabel ?? t('modeFollow') : draft === undefined ? t('triggerFallback') : draftTitle}</span>
                 {!inherit && draftModel && <span className={css.description}>{draftModel.providerName}</span>}
               </div>
               {!inherit && draft && draftModel && <button type="button" className={css.favoriteToggle} aria-pressed={draftFavorite} aria-label={t(draftFavorite ? 'unfavoriteChoice' : 'favoriteChoice').replace('{name}', draftTitle)} title={favoritesFull ? t('favoritesFull') : t(draftFavorite ? 'unfavoriteChoice' : 'favoriteChoice').replace('{name}', draftTitle)} disabled={favoritesFull} onClick={toggleFavorite}>
@@ -306,7 +308,7 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
             </section> : <p className={css.effortUnavailable}>{t('emptyEfforts')}</p>)}
             <div className={css.confirmActions}>
               <button type="button" className={css.cancel} disabled={saving} onClick={() => { close(true) }}>{t('cancel')}</button>
-              <button type="button" className={css.apply} disabled={blocked || !(inherit ? onClear !== undefined : draftModel !== undefined)} onClick={apply}>{saving ? t('statusSaving') : t('applySelection')}</button>
+              <button type="button" className={css.apply} disabled={blocked || unchanged || !(inherit ? onClear !== undefined : draftModel !== undefined)} onClick={apply}>{saving ? t('statusSaving') : t('applySelection')}</button>
             </div>
           </div>
           <span className={css.visuallyHidden} role="status" aria-live="polite">{announcement}</span>

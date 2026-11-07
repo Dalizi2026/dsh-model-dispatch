@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-vi.mock('../src/client/ModelPicker.tsx', () => ({ ModelPicker: (props: any) => React.createElement('button', { disabled: props.disabled, onClick: () => props.onChange({ provider: 'glm', model: 'flash' }) }, 'Select model') }))
+vi.mock('../src/client/ModelPicker.tsx', () => ({ ModelPicker: (props: any) => React.createElement('button', { disabled: props.disabled, 'data-clear': String(props.onClear !== undefined), onClick: () => props.onChange({ provider: 'glm', model: 'flash' }) }, 'Select model') }))
 import { SessionSubagentPicker } from '../src/client/SessionSubagentPicker.tsx'
 import { en } from '../src/client/locales.ts'
 const route = { provider: 'glm', model: 'flash' }
@@ -33,6 +33,9 @@ describe('saved selection without a live parent', () => {
   })
   it('only shows the ready checkmark after a verified live route', () => {
     setup('ready'); expect(JSON.stringify(tree!.toJSON())).toContain('✓')
+  })
+  it('offers no separate restore action: picking a model in the list is the only way to change the chip', () => {
+    setup('ready'); expect(tree!.root.findByType('button').props['data-clear']).toBe('false')
   })
 })
 describe('degraded capabilities on the chip', () => {

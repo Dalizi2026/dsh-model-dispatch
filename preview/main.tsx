@@ -72,6 +72,7 @@ function App() {
   const [settingsDefault, setSettingsDefault] = useState<ModelSelectionConfig | undefined>({ provider: 'factory-a', model: 'claude-sonnet-5-5', reasoningEffort: 'medium' })
   const preferences = useSyncExternalStore(modelPreferences.subscribe, modelPreferences.getSnapshot)
   const save = (set: (value: ModelSelectionConfig | undefined) => void) => async (value: ModelSelectionConfig | undefined) => { await delay(350); set(value) }
+  // Mirrors SessionSubagentPicker: no session pick → settings default → main model.
   return (
     <div style={page}>
       <header style={bar}>
@@ -93,14 +94,14 @@ function App() {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
         <section style={card}>
           <h2 style={h2}>设置页 · 子代理默认模型</h2>
-          <ModelPicker stretch sessionId={undefined} access={access} value={settingsDefault} onChange={save(setSettingsDefault)} t={t} controlLabel={t('subagentTitle')} />
-          <p style={{ ...muted, marginTop: 8 }}>{describe(settingsDefault)}</p>
+          <ModelPicker stretch sessionId={undefined} access={access} value={settingsDefault} onChange={save(setSettingsDefault)} t={t} controlLabel={t('subagentTitle')} fallbackLabel={t('modeFollow')} onClear={settingsDefault ? () => save(setSettingsDefault)(undefined) : undefined} clearLabel={t('modeFollow')} />
+          <p style={{ ...muted, marginTop: 8 }}>{settingsDefault ? describe(settingsDefault) : '跟随主模型'}</p>
         </section>
         <section style={card}>
           <h2 style={h2}>当前状态</h2>
           <dl style={{ margin: 0, fontSize: 12, lineHeight: 1.8 }}>
             <dt style={muted}>主模型（本会话）</dt><dd style={dd}>{describe(main)}</dd>
-            <dt style={muted}>子代理（本会话）</dt><dd style={dd}>{subagent ? describe(subagent) : '跟随设置默认'}</dd>
+            <dt style={muted}>子代理（本会话）</dt><dd style={dd}>{subagent ? describe(subagent) : `未选择，跟随${settingsDefault ? '设置默认' : '主模型'}：${describe(settingsDefault ?? main)}`}</dd>
           </dl>
           <details style={{ marginTop: 8 }}>
             <summary style={{ ...muted, cursor: 'pointer' }}>{V2}</summary>
@@ -112,7 +113,7 @@ function App() {
         <h2 style={h2}>聊天栏</h2>
         <div style={composer}>
           <span style={{ ...muted, flex: 1 }}>给 Droid 发消息…</span>
-          <ModelPicker compact sessionId="preview" access={access} value={subagent ?? settingsDefault} onChange={save(setSubagent)} t={t} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(subagent ? 'sessionSource' : 'defaultSource')} scopeHint={t('subagentScope')} onClear={subagent ? () => save(setSubagent)(undefined) : undefined} clearLabel={t('sessionPickerClear')} />
+          <ModelPicker compact sessionId="preview" access={access} value={subagent ?? settingsDefault ?? main} onChange={save(setSubagent)} t={t} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(subagent ? 'sessionSource' : settingsDefault ? 'defaultSource' : 'followingMain')} scopeHint={t('subagentScope')} />
           <ModelPicker compact sessionId="preview" access={access} value={main} onChange={save(setMain)} t={t} placement="top" roleLabel={t('chatMainRole')} sourceLabel={t('sessionSource')} scopeHint={t('mainScope')} />
         </div>
       </section>

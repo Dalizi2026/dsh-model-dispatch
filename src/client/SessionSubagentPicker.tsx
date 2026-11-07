@@ -42,7 +42,8 @@ function SessionSubagentPickerLoaded({ sessionId, overrides, store, routes, acce
   if (subagent || available === false) return null
   const override = snap.value[sessionId]
   const defaultRoute = resolveCustomSelection(settings.value.subagent)
-  // Show the resolved inherited model, but never persist it implicitly.
+  // The chip shows the model new children will use. Without a session pick it
+  // follows the settings default or main model, and is never persisted implicitly.
   const inherited = defaultRoute ?? mainSelection?.next ?? mainSelection?.lastUsed ?? access.currentSelection(sessionId)
   const state = routeSnap.value
   const seams = state?.seams ?? []
@@ -53,13 +54,13 @@ function SessionSubagentPickerLoaded({ sessionId, overrides, store, routes, acce
   const unverified = state?.state === 'unverified'
   const statusLabel = healthy ? t('routeReady') : problem ? (state?.state === 'missing' ? t('routeSessionMissing') : state?.state === 'blocked' ? t('routeBlocked') : t('routeUnavailable')) : unverified ? t('routeUnverified') : t('statusLoading')
   const routeMessage = statusLabel
-  const write = async (selection?: ModelSelectionConfig): Promise<void> => {
+  const write = async (selection: ModelSelectionConfig): Promise<void> => {
     await overrides.set(sessionId, selection)
     const confirmed = await routes.refresh(sessionId)
     if (confirmed.health !== 'ready' || !['ready', 'unverified'].includes(confirmed.state)) throw new Error(confirmed.error ?? t('routeBlocked'))
   }
   return <div className={css.wrap}>
-    <ModelPicker compact disabled={locked || !state || state.health !== 'ready'} sessionId={sessionId} access={access} value={state?.expected ?? override ?? inherited} onChange={selection => write(selection)} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(override ? 'sessionSource' : defaultRoute ? 'defaultSource' : 'followingMain')} scopeHint={t('subagentScope')} t={t} seed={false} onClear={override ? () => write(undefined) : undefined} clearLabel={t('sessionPickerClear')} />
+    <ModelPicker compact disabled={locked || !state || state.health !== 'ready'} sessionId={sessionId} access={access} value={state?.expected ?? override ?? inherited} onChange={selection => write(selection)} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(override ? 'sessionSource' : defaultRoute ? 'defaultSource' : 'followingMain')} scopeHint={t('subagentScope')} t={t} seed={false} />
     {!(paused && !problem) && <span className={problem ? css.error : css.status} role="status" aria-label={statusLabel} title={statusLabel}>{problem ? `${routeMessage}: ${problem}` : healthy ? '✓' : unverified ? t('routeUnverifiedShort') : '…'}</span>}
     {seams.length > 0 && <details className={css.seams} open={paused}>
       <summary className={css.seamFlag} title={t('seamWarning')} aria-label={t('seamWarning')}>⚠</summary>

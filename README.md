@@ -15,11 +15,11 @@ Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions 
 ## Features
 
 - **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
-- **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves. Cancel, Escape, or clicking outside discards the draft — nothing is written.
+- **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves; **Apply** stays disabled until something changes. Cancel, Escape, or clicking outside discards the draft — nothing is written.
 - **Favorites keep the reasoning effort**: a favorite is a model + effort combination; several efforts of one model share a single row of chips, and picking a model by name starts from the effort you last applied with it. See [favorites and reasoning effort](docs/favorite-efforts.md) (Chinese).
 - **Three settings rows**: new-session default model, subagent default model, and planning model. One scope hint per row.
 - **Plan-mode auto switching**: entering plan mode switches to the planning model; approving the plan or `/plan off` restores the pre-plan main model and effort before the first execution request. The review panel shows the model that will be restored.
-- **Per-session subagent overrides**: the chat-bar subagent pick is stored as a durable session override and never changes the settings default; restore to the settings default in one click.
+- **Per-session subagent overrides**: the chat-bar subagent chip always shows the model new subagents will use. Until you pick one it follows the settings default (or the main model when unset); a pick is stored as a durable session override and never changes the settings default. To go back to the default model, pick it from the list.
 - **Route validation before saving**: overrides and child creation validate the exact provider/model/effort through the host's `resolveCallConfig`; invalid combos fail immediately with the real reason instead of failing inside a run.
 
 ## Routing rules
