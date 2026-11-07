@@ -8,6 +8,8 @@
 ## 文档入口
 
 - 项目概览、路由规则、安装与已知限制：[README.zh.md](README.zh.md)（英文版 [README.md](README.md)）。
+- 项目术语（宿主接缝、已验证版本等）：[GLOSSARY.md](GLOSSARY.md)；放在根目录是因为 Matt 系列技能从根目录读取它。
+- 架构决策记录在 `docs/adr/`，例如 [0001 以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
 - 版本适配与专题说明在 `docs/`，按任务需要读取，例如 [1.2.3 兼容说明](docs/1.2.3-compatibility.md)、[1.2.0 路由锁定](docs/1.2.0-route-locking.md)。
 
 ## 常用命令

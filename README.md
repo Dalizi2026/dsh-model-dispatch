@@ -4,6 +4,8 @@ English | [中文](README.zh.md)
 
 Pick separate models and reasoning efforts for the main session, subagents, and plan mode in DeepSeek Harness (DSH).
 
+Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions are in [ADR 0001: host seams, not versions, decide whether the plugin runs](docs/adr/0001-host-seams-not-versions.md) (Chinese).
+
 > This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5**: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
 
 > **1.2.0: user-selected subagent routes are enforced for the child's lifetime.** Tool arguments and preset model preferences cannot override the session pick or settings default. Missing or invalid locks block requests instead of falling back. Historical children require human model confirmation before continuing. See [upgrade notes](docs/1.2.0-route-locking.md).

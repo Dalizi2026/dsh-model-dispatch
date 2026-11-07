@@ -4,6 +4,8 @@
 
 为 DeepSeek Harness (DSH) 的主会话、子代理与计划模式分别选择模型与思考强度。
 
+项目术语见 [GLOSSARY.md](GLOSSARY.md)，架构决策见 [ADR 0001：以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
+
 > 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
 
 ## 功能
