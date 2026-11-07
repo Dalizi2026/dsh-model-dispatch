@@ -16,6 +16,7 @@ Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions 
 
 - **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
 - **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves. Cancel, Escape, or clicking outside discards the draft — nothing is written.
+- **Favorites keep the reasoning effort**: a favorite is a model + effort combination; several efforts of one model share a single row of chips, and picking a model by name starts from the effort you last applied with it. See [favorites and reasoning effort](docs/favorite-efforts.md) (Chinese).
 - **Three settings rows**: new-session default model, subagent default model, and planning model. One scope hint per row.
 - **Plan-mode auto switching**: entering plan mode switches to the planning model; approving the plan or `/plan off` restores the pre-plan main model and effort before the first execution request. The review panel shows the model that will be restored.
 - **Per-session subagent overrides**: the chat-bar subagent pick is stored as a durable session override and never changes the settings default; restore to the settings default in one click.
@@ -48,7 +49,7 @@ Replace `desktop` with the profile you actually use. Wait for active tasks to fi
 | Session subagent overrides | `$DSH_HOME/storages/model-switch/session-overrides.json` |
 | Immutable child routes | `$DSH_HOME/storages/model-switch/child-route-locks.json` |
 | Pre-plan main model | `$DSH_HOME/storages/model-switch/plan-main-models.json` (cleared after a successful restore) |
-| Menu favorites / recents | Browser localStorage (not synced) |
+| Menu favorites / recents / last efforts | Browser localStorage `dsh-model-switch/picker-v2` (not synced) |
 
 ## Build and test
 
@@ -56,6 +57,7 @@ Replace `desktop` with the profile you actually use. Wait for active tasks to fi
 npm ci
 npm test        # vitest
 npm run build       # tsc (two projects) + tsdown client bundle
+npm run preview     # interactive model-menu preview at http://127.0.0.1:5179/
 ```
 
 Coverage includes conflicting tool/native routes, immutable child locks, concurrent saves, corruption/write failure rejection, cold historical confirmation with authentication and ownership checks, nested delegation, request-boundary rejection, plan restoration, independent defaults and client acknowledgement races.

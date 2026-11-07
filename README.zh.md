@@ -12,6 +12,7 @@
 
 - **聊天栏双入口**：输入框同时显示 **主模型** 与 **子代理** 两个芯片。主模型使用 DSH 原生切换接口；子代理选择只影响当前会话之后新启动的子代理。
 - **统一模型菜单**：所有入口共用同一个菜单——搜索、提供方分组、收藏、最近使用、思考强度。选模型后菜单保持打开，直接调强度，点 **应用** 一次保存；取消、Esc 或点击菜单外丢弃草稿，不写配置。
+- **收藏带思考强度**：收藏保存“模型 + 强度”组合，同一模型的多个强度合并成一行标签；点模型名自动带上次用的强度。规则与迁移见 [收藏模型与思考强度](docs/favorite-efforts.md)。
 - **设置页三项**：新会话默认模型、子代理默认模型、制定计划模型。每项一句说明，无重复装饰。
 - **计划模式自动切换**：进入计划模式自动切到“制定计划”模型做计划；批准计划或 `/plan off` 后，在第一条执行请求前自动恢复进入计划前的主模型与推理档位。审批面板显示将恢复的模型。
 - **按会话子代理覆盖**：聊天栏的子代理选择保存为会话覆盖（持久化），不改设置默认；可一键恢复为设置默认。
@@ -58,7 +59,7 @@ dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
 | 会话子代理覆盖 | `$DSH_HOME/storages/model-switch/session-overrides.json` |
 | 子代理不可变模型锁 | `$DSH_HOME/storages/model-switch/child-route-locks.json` |
 | 计划前主模型暂存 | `$DSH_HOME/storages/model-switch/plan-main-models.json`（恢复成功后清除） |
-| 菜单收藏 / 最近使用 | 浏览器 localStorage（不同步设备） |
+| 菜单收藏 / 最近使用 / 上次强度 | 浏览器 localStorage `dsh-model-switch/picker-v2`（不同步设备） |
 
 ## 构建与测试
 
@@ -66,6 +67,7 @@ dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
 npm ci
 npm test        # vitest
 npm run build       # tsc（双工程）+ tsdown 客户端 bundle
+npm run preview     # 模型菜单可交互预览，http://127.0.0.1:5179/
 ```
 
 测试覆盖：工具与原生启动参数冲突、锁定持久化与并发写入、损坏及写入失败、历史确认的认证与父子关系、嵌套继承、最终请求拒绝、计划边界与默认隔离、客户端保存确认竞态。

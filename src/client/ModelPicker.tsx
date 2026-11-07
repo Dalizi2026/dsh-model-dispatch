@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import type { ModelCatalog, ModelSelection, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { IconCheckOutlineMedium, IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelSelectionConfig } from '../shared.ts'
-import { modelKey, modelPreferences } from './model-preferences.ts'
+import { effortOf, favoriteRows, isFavorite, MAX_FAVORITES, modelKey, modelPreferences, recentRows, startingEffort, type ShortcutChip, type ShortcutRow } from './model-preferences.ts'
 import type { LocaleKey } from './locales.ts'
 import css from './ModelPicker.module.css'
 
@@ -36,6 +36,13 @@ export interface ModelPickerProps {
   onClear?: () => void | Promise<void>
   clearLabel?: string
 }
+const withEffort = (provider: string, model: string, effort: string | undefined): ModelSelectionConfig => ({ provider, model, ...effort === undefined ? {} : { reasoningEffort: effort } })
+/** Star lighting: a short critically damped settle, skipped under reduced motion. */
+function settle(element: HTMLElement | null): void {
+  if (element === null || typeof element.animate !== 'function') return
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+  element.animate([{ transform: 'scale(0.85)' }, { transform: 'scale(1)' }], { duration: 250, easing: 'cubic-bezier(0.2, 0, 0, 1)' })
+}
 export function ModelPicker({ sessionId, access, value, onChange, t, disabled, className, placement = 'bottom', fallbackLabel, requireSession = false, roleLabel, controlLabel, stretch = false, scopeHint, sourceLabel, onClear, clearLabel, compact = false }: ModelPickerProps) {
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [loading, setLoading] = useState(false)
@@ -45,11 +52,14 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<ModelSelectionConfig | undefined>()
   const [inherit, setInherit] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
   const savingRef = useRef(false)
   const [position, setPosition] = useState({ left: 0, top: 0, height: 480 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const starRef = useRef<HTMLSpanElement>(null)
   const loadRevision = useRef(0)
   const preferences = useSyncExternalStore(modelPreferences.subscribe, modelPreferences.getSnapshot)
   const id = useId()
@@ -67,6 +77,7 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const choices = useMemo(() => catalog?.groups.flatMap(group => group.models.map(model => ({
     ...model, provider: group.id, providerName: group.name, model: model.id,
   }))) ?? [], [catalog])
+  type Choice = (typeof choices)[number]
   const selected = choices.find(row => row.provider === value?.provider && row.model === value.model)
   const reasoning = selected?.reasoning
   const effectiveEffort = value?.reasoningEffort ?? reasoning?.defaultEffort
@@ -75,6 +86,13 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const fullLabel = [controlLabel ?? roleLabel, modelLabel, effortLabel].filter(Boolean).join(' · ')
   const draftModel = choices.find(row => row.provider === draft?.provider && row.model === draft.model)
   const draftReasoning = draftModel?.reasoning
+  // The editor names the exact combination the star saves.
+  const draftEffortName = draft !== undefined && draftReasoning !== undefined && draftReasoning.efforts.length > 0
+    ? draftReasoning.efforts.find(level => level.id === draft.reasoningEffort)?.name ?? draft.reasoningEffort ?? t('effortDefault')
+    : undefined
+  const draftTitle = [draftModel?.name ?? draft?.model, draftEffortName].filter(Boolean).join(' · ')
+  const draftFavorite = draft !== undefined && isFavorite(preferences, draft)
+  const favoritesFull = !draftFavorite && preferences.favorites.length >= MAX_FAVORITES
   const close = (focus = false): void => {
     if (savingRef.current) return
     setOpen(false); if (focus) triggerRef.current?.focus()
@@ -115,18 +133,35 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
       setSaving(false); close(true)
     }).catch((cause: unknown) => { savingRef.current = false; setSaving(false); setError(cause instanceof Error ? cause.message : String(cause)) })
   }
-  const pick = (provider: string, model: string): void => {
+  /** A model name: keep the effort already chosen for it here, else its last applied effort, else the default. */
+  const pick = (row: Choice): void => {
     if (blocked) return
-    const row = choices.find(item => item.provider === provider && item.model === model)
-    // Re-selecting the same model keeps its explicit effort. A different
-    // model starts with its own default, never an unsupported prior effort.
     const current = inherit ? value : draft
-    const next = current?.provider === provider && current.model === model
+    const next = current?.provider === row.provider && current.model === row.model
       ? { ...current }
-      : value?.provider === provider && value.model === model
+      : value?.provider === row.provider && value.model === row.model
         ? { ...value }
-        : { provider, model, ...row?.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: row.reasoning.defaultEffort } }
-    setDraft(next); setInherit(false)
+        : withEffort(row.provider, row.model, startingEffort(preferences, row))
+    setDraft(next); setInherit(false); setNotice(null)
+  }
+  /** An effort chip: exactly that combination, or the default when the saved effort is gone. */
+  const pickChip = (row: Choice, chip: ShortcutChip): void => {
+    if (blocked) return
+    if (chip.stale) {
+      setDraft(withEffort(row.provider, row.model, row.reasoning?.defaultEffort))
+      setNotice(t('staleEffort').replace('{effort}', chip.name))
+    } else {
+      setDraft(withEffort(row.provider, row.model, chip.effort ?? undefined))
+      setNotice(null)
+    }
+    setInherit(false)
+  }
+  const toggleFavorite = (): void => {
+    if (draft === undefined || draftModel === undefined) return
+    const adding = !draftFavorite
+    if (!modelPreferences.toggleFavorite(draft)) return
+    setAnnouncement(t(adding ? 'favoriteAdded' : 'favoriteRemoved').replace('{name}', draftTitle))
+    if (adding) settle(starRef.current)
   }
   const apply = (): void => {
     if (inherit && onClear !== undefined) commit(onClear)
@@ -142,26 +177,40 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
       }
       return
     }
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const row = active?.closest('[data-model-row]')
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      // Left/right walks one row: its model name, then its effort chips.
+      if (!row) return
+      const items = Array.from(row.querySelectorAll<HTMLButtonElement>('[data-model-option]:not(:disabled), [data-effort-chip]:not(:disabled)'))
+      const at = items.indexOf(active as HTMLButtonElement)
+      if (at < 0) return
+      event.preventDefault()
+      items[event.key === 'ArrowRight' ? Math.min(at + 1, items.length - 1) : Math.max(at - 1, 0)]?.focus()
+      return
+    }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
     if (event.target === searchRef.current && ['Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-option]:not(:disabled)') ?? [])
-    const at = items.indexOf(document.activeElement as HTMLButtonElement)
+    const at = items.indexOf((row?.querySelector('[data-model-option]') ?? active) as HTMLButtonElement)
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : event.key === 'ArrowDown' ? (at + 1) % items.length : at <= 0 ? items.length - 1 : at - 1
     items[next]?.focus()
   }
   const normalized = query.trim().toLocaleLowerCase()
   const visible = choices.filter(row => `${row.name} ${row.model} ${row.providerName} ${row.provider}`.toLocaleLowerCase().includes(normalized))
-  const groups = normalized ? [{ label: t('searchResults'), rows: visible }] : [
-    { label: t('favorites'), rows: choices.filter(row => preferences.favorites.includes(modelKey(row))) },
-    { label: t('recentModels'), rows: preferences.recent.flatMap(key => choices.filter(row => modelKey(row) === key)) },
-    ...(catalog?.groups.map(group => ({ label: group.name, rows: choices.filter(row => row.provider === group.id) })) ?? []),
+  const plain = (rows: readonly Choice[]): ShortcutRow<Choice>[] => rows.map(choice => ({ choice, chips: [] }))
+  const sections: { id: string; label: string; shortcut: boolean; rows: readonly ShortcutRow<Choice>[] }[] = normalized ? [{ id: 'search', label: t('searchResults'), shortcut: true, rows: plain(visible) }] : [
+    { id: 'favorites', label: t('favorites'), shortcut: true, rows: favoriteRows(preferences, choices, t('effortDefaultShort')) },
+    { id: 'recent', label: t('recentModels'), shortcut: true, rows: recentRows(preferences, choices, t('effortDefaultShort')) },
+    ...(catalog?.groups.map(group => ({ id: `provider:${group.id}`, label: group.name, shortcut: false, rows: plain(choices.filter(row => row.provider === group.id)) })) ?? []),
   ]
+  const draftEffort = draft === undefined ? undefined : effortOf(draft)
   if (requireSession && sessionId === undefined) return <p className={css.muted}>{t('noSession')}</p>
   return (
     <div className={[css.root, compact ? css.compact : undefined, stretch ? css.stretch : undefined, className].filter(Boolean).join(' ')}>
       <button ref={triggerRef} type="button" className={css.trigger} aria-label={fullLabel} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} title={fullLabel} disabled={blocked} onClick={() => {
-        if (open) close(); else { setQuery(''); setDraft(value === undefined ? undefined : { ...value }); setInherit(false); setError(null); setOpen(true); load() }
+        if (open) close(); else { setQuery(''); setDraft(value === undefined ? undefined : { ...value }); setInherit(false); setError(null); setNotice(null); setAnnouncement(''); setOpen(true); load() }
       }}>
         {roleLabel && <span className={css.role}>{roleLabel}</span>}
         <span className={css.triggerLabel}>{modelLabel}</span>
@@ -180,35 +229,44 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
           {catalog?.failures.length ? <div className={css.warning}>{t('catalogPartial')}: {catalog.failures.map(row => row.name).join(', ')}</div> : null}
           <div className={css.groups} aria-busy={loading || saving}>
             {loading && !catalog && <div className={css.status}>{t('statusLoading')}</div>}
-            {groups.filter(group => group.rows.length).map(group => <section className={css.group} key={group.label} aria-label={group.label}>
-              <h4 className={css.groupTitle}>{group.label}</h4>
-              {group.rows.map(row => {
-                const key = modelKey(row)
-                const favorite = preferences.favorites.includes(key)
+            {sections.filter(section => section.rows.length).map(section => <section className={css.group} key={section.id} aria-label={section.label}>
+              <h4 className={css.groupTitle}>{section.label}</h4>
+              {section.rows.map(({ choice: row, chips }) => {
                 const current = !inherit && row.provider === draft?.provider && row.model === draft.model
-                return <div className={css.modelRow} key={key}>
-                  <button type="button" data-model-option className={[css.option, current ? css.selected : ''].filter(Boolean).join(' ')} aria-pressed={current} disabled={blocked} title={`${row.name} · ${row.providerName}`} onClick={() => { pick(row.provider, row.model) }}>
-                    <span className={css.optionCopy}><span className={css.modelName}>{row.name}</span><span className={css.description}>{normalized || group.label === t('favorites') || group.label === t('recentModels') ? `${row.providerName} · ` : ''}{row.description ?? row.model}</span></span>
+                return <div className={css.modelRow} key={modelKey(row)} data-model-row>
+                  <button type="button" data-model-option className={[css.option, current ? css.selected : ''].filter(Boolean).join(' ')} aria-pressed={current} disabled={blocked} title={`${row.name} · ${row.providerName}`} onClick={() => { pick(row) }}>
+                    <span className={css.optionCopy}><span className={css.modelName}>{row.name}</span><span className={css.description}>{section.shortcut ? `${row.providerName} · ` : ''}{row.description ?? row.model}</span></span>
                     {current && <IconCheckOutlineMedium className={css.check} />}
                   </button>
-                  <button type="button" className={css.favorite} aria-label={`${t(favorite ? 'unfavoriteModel' : 'favoriteModel')}: ${row.name}`} aria-pressed={favorite} onClick={() => { modelPreferences.toggleFavorite(row) }}>{favorite ? '★' : '☆'}</button>
+                  {chips.length > 0 && <div className={css.rowChips}>
+                    {chips.map(chip => {
+                      const label = `${row.name} · ${chip.name}`
+                      return <button key={chip.effort ?? '\u0000default'} type="button" data-effort-chip data-stale={chip.stale ? 'true' : undefined} className={[css.effort, css.rowChip].join(' ')} aria-pressed={current && !chip.stale && draftEffort === chip.effort} aria-label={chip.stale ? `${label} · ${t('staleEffortChip')}` : label} title={chip.stale ? t('staleEffortChip') : label} disabled={blocked} onClick={() => { pickChip(row, chip) }}>{chip.name}</button>
+                    })}
+                  </div>}
                 </div>
               })}
             </section>)}
             {!loading && visible.length === 0 && <div className={css.empty}>{t(normalized ? 'noResults' : 'emptyModels')}</div>}
           </div>
-          {onClear && <button className={css.clear} type="button" aria-pressed={inherit} disabled={blocked} onClick={() => { setInherit(true) }}>{clearLabel ?? t('sessionPickerClear')}{inherit && <IconCheckOutlineMedium className={css.check} />}</button>}
+          {onClear && <button className={css.clear} type="button" aria-pressed={inherit} disabled={blocked} onClick={() => { setInherit(true); setNotice(null) }}>{clearLabel ?? t('sessionPickerClear')}{inherit && <IconCheckOutlineMedium className={css.check} />}</button>}
           <div className={css.selectionEditor}>
             <div className={css.draftSummary}>
-              <span className={css.modelName}>{inherit ? clearLabel ?? t('sessionPickerClear') : draftModel?.name ?? draft?.model ?? t('triggerFallback')}</span>
-              {!inherit && draftModel && <span className={css.description}>{draftModel.providerName}</span>}
+              <div className={css.draftCopy}>
+                <span className={css.modelName}>{inherit ? clearLabel ?? t('sessionPickerClear') : draft === undefined ? t('triggerFallback') : draftTitle}</span>
+                {!inherit && draftModel && <span className={css.description}>{draftModel.providerName}</span>}
+              </div>
+              {!inherit && draft && draftModel && <button type="button" className={css.favoriteToggle} aria-pressed={draftFavorite} aria-label={t(draftFavorite ? 'unfavoriteChoice' : 'favoriteChoice').replace('{name}', draftTitle)} title={favoritesFull ? t('favoritesFull') : t(draftFavorite ? 'unfavoriteChoice' : 'favoriteChoice').replace('{name}', draftTitle)} disabled={favoritesFull} onClick={toggleFavorite}>
+                <span ref={starRef} className={css.star} aria-hidden="true">{draftFavorite ? '★' : '☆'}</span>
+              </button>}
             </div>
+            {notice && !inherit && <p className={css.notice} role="status">{notice}</p>}
             {!inherit && draftModel && (draftReasoning && draftReasoning.efforts.length > 0 ? <section className={css.effortSection} aria-label={t('effortLabel')}>
               <span className={css.groupTitle}>{t('effortLabel')}</span>
               <div className={css.efforts}>
                 {[{ id: undefined, name: t('effortDefault'), description: undefined }, ...draftReasoning.efforts].map(level => <button key={level.id ?? 'default'} type="button" className={css.effort} aria-pressed={draft?.reasoningEffort === level.id} disabled={blocked} title={level.description} onClick={() => {
                   if (draft === undefined) return
-                  setDraft({ provider: draft.provider, model: draft.model, ...level.id === undefined ? {} : { reasoningEffort: level.id } })
+                  setDraft(withEffort(draft.provider, draft.model, level.id)); setNotice(null)
                 }}>{level.name}</button>)}
               </div>
             </section> : <p className={css.effortUnavailable}>{t('emptyEfforts')}</p>)}
@@ -217,6 +275,7 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
               <button type="button" className={css.apply} disabled={blocked || !(inherit ? onClear !== undefined : draftModel !== undefined)} onClick={apply}>{saving ? t('statusSaving') : t('applySelection')}</button>
             </div>
           </div>
+          <span className={css.visuallyHidden} role="status" aria-live="polite">{announcement}</span>
           {scopeHint && <footer className={css.scopeHint}>{scopeHint}</footer>}
         </div>, document.body,
       )}

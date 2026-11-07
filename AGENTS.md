@@ -24,4 +24,5 @@
 - `npm test`：运行 vitest。
 - `npm run typecheck`：宿主与客户端双工程类型检查。
 - `npm run build`：tsc 双工程 + tsdown 客户端 bundle，输出到 `lib/`。
+- `npm run preview`：模型菜单可交互预览（正式 `ModelPicker` + 假目录），改菜单交互先在这里验证，说明见 [收藏模型与思考强度](docs/favorite-efforts.md)。
 - `lib/` 是提交进仓库的构建产物（用户直接从 GitHub 安装）；修改 `src/` 后须重新构建，并把 `lib/` 与源码同一提交。
