@@ -10,7 +10,13 @@
 - 项目概览、路由规则、安装与已知限制：[README.zh.md](README.zh.md)（英文版 [README.md](README.md)）。
 - 项目术语（宿主接缝、已验证版本等）：[GLOSSARY.md](GLOSSARY.md)；放在根目录是因为 Matt 系列技能从根目录读取它。
 - 架构决策记录在 `docs/adr/`，例如 [0001 以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
-- 版本适配与专题说明在 `docs/`，按任务需要读取，例如 [1.2.3 兼容说明](docs/1.2.3-compatibility.md)、[1.2.0 路由锁定](docs/1.2.0-route-locking.md)。
+- 版本与专题说明在 `docs/`，按任务需要读取，例如 [1.3.0 宿主接缝](docs/1.3.0-host-seams.md)、[已验证版本](docs/verified-versions.md)、[1.2.0 路由锁定](docs/1.2.0-route-locking.md)。
+
+## 宿主兼容约束
+
+- 不按 DSH 版本号限制安装或运行（ADR 0001）：`engines.dsh` 和 DSH 系列 peer 保持 `*`，不要加回版本范围。
+- 能力缺了就不能安全运行的 DSH 服务方法，登记到 `src/host-seams.ts` 的 `REQUIREMENTS`；可选的服务方法在调用处先判断存在，缺了不能让请求失败。新增依赖的事件数据格式时，用 `HostSeams.observe` 报告不符。
+- 版本号只记在 [docs/verified-versions.md](docs/verified-versions.md)，由 `scripts/verify-host.mjs` 的结果生成。
 
 ## 常用命令
 

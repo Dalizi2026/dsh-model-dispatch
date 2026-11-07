@@ -6,7 +6,9 @@ Pick separate models and reasoning efforts for the main session, subagents, and 
 
 Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions are in [ADR 0001: host seams, not versions, decide whether the plugin runs](docs/adr/0001-host-seams-not-versions.md) (Chinese).
 
-> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5**: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
+> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for the **DSH 0.2.x** interfaces: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
+
+> **1.3.0: host seams, not versions, decide whether the plugin runs.** The DSH version gate is gone (`engines.dsh: "*"`). Each capability checks the host seams it needs when it is used; a missing seam pauses the model lock, switches plan auto-switch off, or hides one UI entry, and the chat chip, settings banner and host log name the missing seams. See [1.3.0 notes](docs/1.3.0-host-seams.md) (Chinese).
 
 > **1.2.0: user-selected subagent routes are enforced for the child's lifetime.** Tool arguments and preset model preferences cannot override the session pick or settings default. Missing or invalid locks block requests instead of falling back. Historical children require human model confirmation before continuing. See [upgrade notes](docs/1.2.0-route-locking.md).
 
@@ -27,7 +29,7 @@ Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions 
 
 ## Install
 
-Targets **DeepSeek Harness Desktop 0.2.1-rc.5**. See [1.2.3 compatibility notes](docs/1.2.3-compatibility.md) for verification scope. The separate 0.2.2 alpha channel is not included in this compatibility claim.
+Installs on any DSH version; host seams decide what runs. DSH versions where the full contract suite passed are listed in [verified versions](docs/verified-versions.md) (Chinese): evidence, not an install condition. On 0.2.2-rc.1, plan auto-switch takes effect one request late; see that record.
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
@@ -64,11 +66,11 @@ For an isolated native-host test with simulated models (no paid requests):
 DSH_TEST_MODULE_ROOT=/absolute/path/to/dsh/node_modules node scripts/verify-host.mjs
 ```
 
-The script creates a separate temporary profile, checks native tool execution, nested locks, request headers and adapter dispatch, and asserts zero Opus dispatches. It leaves the active desktop profile untouched.
+The script creates a separate temporary profile, checks native tool execution, nested locks, request headers and adapter dispatch, asserts zero Opus dispatches and an empty host seam report. It leaves the active desktop profile untouched. `.github/workflows/regression.yml` runs it on each listed DSH version, and `workflow_dispatch` accepts any version; see [verified versions](docs/verified-versions.md) for recording a result.
 
 ## Known limitations
 
-- Tightly coupled to DSH 0.2.x internals (configForms, sessionProjections, sessionController, planMode); re-run the suite after a DSH upgrade.
+- Runtime checks prove a host seam exists, not that its behavior is unchanged. Event renames, timing changes and missing module exports are caught only by the native contract suite; run it on each new DSH version.
 - Live plan approval uses the canonical `approved` value. Recovering an approval across a process restart also uses the durable tool result and `plan/mode` events; native event changes require regression checks.
 - Child sessions do not switch models in plan mode. They keep their own immutable lock; nested delegation inherits it.
 - External backends that cannot prove the dispatch route are rejected. Missing/corrupt locks or unavailable models require repair or explicit historical confirmation; there is no automatic model fallback.

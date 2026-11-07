@@ -1,5 +1,13 @@
 name: Regression
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'Verify one DSH version (for example 0.2.3-rc.1); empty runs the listed verified versions'
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -20,11 +28,14 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm pack --ignore-scripts
+  # Version evidence, never an install condition: a passing run with an empty
+  # host seam report adds the version to docs/verified-versions.md.
   native-host:
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
+        dsh: ${{ fromJSON(inputs.dsh_version && format('["{0}"]', inputs.dsh_version) || '["0.2.1-rc.3","0.2.1-rc.5","0.2.2-rc.1"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -35,11 +46,11 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Install official isolated DSH runtime
-        run: npm install --prefix .native-host --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 @deepseek-ai/dsh-web-app@0.2.1-rc.5
+        run: npm install --prefix .native-host --no-audit --no-fund --ignore-scripts @deepseek-ai/dsh@${{ matrix.dsh }} @deepseek-ai/dsh-web-app@${{ matrix.dsh }}
       - name: Native host regressions (mock adapters, no paid requests)
         run: node --input-type=module -e "import path from 'node:path'; process.env.DSH_TEST_MODULE_ROOT = path.resolve('.native-host/node_modules'); process.env.DSH_TEST_REPORT = path.resolve('native-host-report.json'); await import('./scripts/verify-host.mjs');"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-host-${{ matrix.os }}
+          name: native-host-${{ matrix.os }}-${{ matrix.dsh }}
           path: native-host-report.json

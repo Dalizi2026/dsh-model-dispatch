@@ -72,6 +72,17 @@ export declare const zh: {
     routeConflict: string;
     saved: string;
     statusSaving: string;
+    seamWarning: string;
+    seamLockPaused: string;
+    seamLockStrict: string;
+    seamPlanOff: string;
+    seamPlanLate: string;
+    seamChatOff: string;
+    seamCatalogOff: string;
+    seamHint: string;
+    seamMissing: string;
+    seamMismatched: string;
+    seamsUnavailable: string;
 };
 export declare const en: {
     nav: string;
@@ -146,5 +157,16 @@ export declare const en: {
     routeConflict: string;
     saved: string;
     statusSaving: string;
+    seamWarning: string;
+    seamLockPaused: string;
+    seamLockStrict: string;
+    seamPlanOff: string;
+    seamPlanLate: string;
+    seamChatOff: string;
+    seamCatalogOff: string;
+    seamHint: string;
+    seamMissing: string;
+    seamMismatched: string;
+    seamsUnavailable: string;
 };
 export type LocaleKey = keyof typeof zh;

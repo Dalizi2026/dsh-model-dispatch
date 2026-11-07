@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { installPlanModelSwitch, type PlanMainStore } from '../src/plan-model.ts'
 import { PLAN_BOUNDARY_KEY, planBoundaryDefinition } from '../src/plan-boundary.ts'
+import { HostSeams, PLAN_APPROVED_SEAM } from '../src/host-seams.ts'
 import type { Config, ModelSelectionConfig } from '../src/shared.ts'
 
 const smart = { provider: 'step', model: 'step-model' }
@@ -25,22 +26,25 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
     if (decision.kind !== 'reject' && plan.pending !== undefined) { plan.active = plan.pending; plan.pending = undefined; plan.wanted = null }
     return decision
   })
+  // The host services the switch reads; tests remove a method to model a changed DSH.
+  const services: Record<string, Record<string, unknown>> = {
+    sessionProjections: {
+      register() {},
+      stateOf(_session: unknown, key: string) { return key === 'plan' ? plan : key === PLAN_BOUNDARY_KEY ? boundary : projected },
+    },
+    sessionController: { async selectModel(request: ModelSelectionConfig) {
+      await admission; calls.push(request); projected.pending = request; selected.current = request
+    } },
+    agentDefaultModel: { saveSelection() {} },
+  }
+  const seams = new HostSeams({ get: (name: string) => services[name], logger: { warn() {}, info() {} } } as never)
   installPlanModelSwitch({
     inject(_deps: string[], apply: (ctx: unknown) => void) {
-      apply({
-        on: events.on.bind(events), get: () => isolated ? undefined : ({ get: () => plan }),
-        sessionProjections: {
-          register() {},
-          stateOf(_session: unknown, key: string) { return key === 'plan' ? plan : key === PLAN_BOUNDARY_KEY ? boundary : projected },
-        },
-        sessionController: { async selectModel(request: ModelSelectionConfig) {
-          await admission; calls.push(request); projected.pending = request; selected.current = request
-        } },
-      })
+      apply({ on: events.on.bind(events), get: () => isolated ? undefined : ({ get: () => plan }), ...services })
     },
-  } as never, () => config, mains)
+  } as never, () => config, mains, seams)
   return {
-    session, agent, plan, projected, calls, mains,
+    session, agent, plan, projected, calls, mains, services, seams,
     gate(promise: Promise<void>) { admission = promise },
     event(type: string, data: any) {
       boundary = planBoundaryDefinition.apply(boundary, { type, data })
@@ -54,6 +58,9 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
     select(value: ModelSelectionConfig) { selected.current = value; projected.pending = value },
     async reviewResult(approved: boolean, isError = false) {
       await events.emit('tools/result', { name: 'exit_plan_mode', agent }, { isError, value: { approved }, content: [] })
+    },
+    async reviewValue(value: unknown) {
+      await events.emit('tools/result', { name: 'exit_plan_mode', agent }, { isError: false, value, content: [] })
     },
     async request() {
       await events.waterfall('system-prompt/assemble', { variables: {} }, { agent }, async () => ({ variables: {} }))
@@ -194,6 +201,31 @@ describe('temporary planning models before native model snapshots', () => {
     const h = setup(); h.plan.pending = true; await h.request(); h.consume(); h.plan.active = true; h.approve()
     h.gate(Promise.reject(new Error('unavailable'))); await expect(h.request()).rejects.toThrow('unavailable')
     expect(h.mains.get('s1')).toEqual(main); h.gate(Promise.resolve()); expect(await h.request()).toMatchObject(main)
+  })
+})
+
+describe('plan auto-switch host seams', () => {
+  it('keeps main requests on the main model while a plan seam is missing, and switches once it returns', async () => {
+    const h = setup(); const controller = h.services.sessionController!; const select = controller.selectModel
+    delete controller.selectModel
+    h.plan.pending = true
+    expect(await h.request()).toEqual(main); expect(h.calls).toEqual([]); expect(h.mains.get('s1')).toBeUndefined()
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: ['sessionController.selectModel'], mismatched: [] })
+    controller.selectModel = select
+    expect((await h.request()).model).toBe(smart.model)
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: [], mismatched: [] })
+  })
+  it('reports an approval result without a boolean approved and still restores on the plan exit', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.plan.active = true
+    expect((await h.request()).model).toBe(smart.model); h.consume()
+    await h.reviewValue({ status: 'approved' })
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: [], mismatched: [PLAN_APPROVED_SEAM] })
+    expect((await h.request()).model).toBe(smart.model)
+    h.plan.active = false; h.event('plan/mode', { active: false }); await h.commit()
+    expect(await h.request()).toMatchObject(main)
+    await h.reviewResult(false)
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: [], mismatched: [] })
   })
 })
 

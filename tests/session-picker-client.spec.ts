@@ -8,8 +8,8 @@ const route = { provider: 'glm', model: 'flash' }
 const subscribe = () => () => {}
 let tree: ReactTestRenderer | undefined
 afterEach(() => { if (tree) act(() => tree!.unmount()); tree = undefined })
-function setup(state: string) {
-  const status = { sessionId: 's1', health: 'ready', state, expected: route }
+function setup(state: string, extra: Record<string, unknown> = {}) {
+  const status = { sessionId: 's1', health: 'ready', state, expected: route, ...extra }
   const routeSnap = { value: status }
   const overrideSnap = { value: { s1: route } }
   const settings = { value: {} }
@@ -33,5 +33,20 @@ describe('saved selection without a live parent', () => {
   })
   it('only shows the ready checkmark after a verified live route', () => {
     setup('ready'); expect(JSON.stringify(tree!.toJSON())).toContain('✓')
+  })
+})
+describe('degraded capabilities on the chip', () => {
+  const missing = ['subagents.startActivation', 'subagents.startContinuable', 'subagents.start']
+  it('replaces the raw pause error with the localized impact and the missing seam names', () => {
+    setup('blocked', { error: 'Subagent dispatch is paused: raw host text', seams: [{ capability: 'model-lock', missing, mismatched: [] }] })
+    const text = JSON.stringify(tree!.toJSON())
+    expect(text).toContain(en.seamLockPaused); expect(text).toContain(en.seamHint)
+    for (const seam of missing) expect(text).toContain(seam)
+    expect(text).not.toContain('raw host text')
+  })
+  it('keeps the ready mark when only plan auto-switch is degraded', () => {
+    setup('ready', { seams: [{ capability: 'plan-switch', missing: [], mismatched: ['tools/result exit_plan_mode value.approved'] }] })
+    const text = JSON.stringify(tree!.toJSON())
+    expect(text).toContain('✓'); expect(text).toContain(en.seamPlanLate); expect(text).toContain('value.approved')
   })
 })

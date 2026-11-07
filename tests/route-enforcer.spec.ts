@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { RouteEnforcer, type RoutingAgent } from '../src/route-enforcer.ts'
+import { COMPACTION_ID_SEAM, HostSeams } from '../src/host-seams.ts'
 import { memoryLocks } from './route-fixture.ts'
 import type { Config, ModelSelectionConfig } from '../src/shared.ts'
 const glm = { provider: 'glm', model: 'flash', reasoningEffort: 'max' }
@@ -21,12 +22,23 @@ function setup() {
     if (route.model === 'invalid') throw new Error('Model unavailable')
     return { ...route }
   })
-  const ctx = { subagents: { getProvider: (name: string) => name === 'local' ? { prepareContinuable() {} } : { start() {} } },
-    get: (key: string) => key === 'agents' ? { get: (id: string) => agents.get(id), list: () => [...agents.values()] } : key === 'sessionProjections' ? { stateOf: () => projection } : key === 'sessionPersistence' ? { stat: async (id: string) => headers.has(id) ? { header: headers.get(id) } : undefined } : undefined,
+  // A complete fake host: tests remove one seam to model a changed DSH.
+  const services: Record<string, Record<string, unknown>> = {
+    subagents: { startActivation() {}, startContinuable() {}, getProvider: (name: string) => name === 'local' ? { prepareContinuable() {} } : { start() {} } },
+    agents: { get: (id: string) => agents.get(id), list: () => [...agents.values()] },
+    sessionProjections: { stateOf: () => projection, register() {} },
+    sessionController: { selectModel() {} },
+    agentDefaultModel: { saveSelection() {} },
+    sessionPersistence: { stat: async (id: string) => headers.has(id) ? { header: headers.get(id) } : undefined },
+    llm: { resolveCallConfig: async (route: unknown) => route, listProviders: () => [], listModels: async () => [] },
+  }
+  const logger = { warn: vi.fn(), info: vi.fn() }
+  const ctx = { get: (key: string) => services[key], logger,
     on: (name: string, fn: Function) => { const rows = hooks.get(name) ?? []; rows.push(fn); hooks.set(name, rows); return () => {} },
     effect: (fn: Function) => fn(),
   }
-  const enforcer = new RouteEnforcer(ctx as never, () => config, { ready: async () => {}, get: id => overrides.get(id) }, locks, admit)
+  const seams = new HostSeams(ctx as never)
+  const enforcer = new RouteEnforcer(ctx as never, () => config, { ready: async () => {}, get: id => overrides.get(id) }, locks, admit, seams)
   const child = (id = 'child', parentId = parent.id): RoutingAgent => {
     const agent = { id, ctx: new Context(), session: { header: { origin: 'subagent', parentSession: parentId } } }
     agents.set(id, agent); return agent
@@ -34,7 +46,7 @@ function setup() {
   const start = async (id = 'child', p = parent, requested = opus) => enforcer.delegate('local', p, requested, async options => {
     const agent = child(id, p.id); await enforcer.created(agent); return { agent, options }
   })
-  return { ctx, parent, enforcer, locks, overrides, agents, headers, hooks, admit, child, start,
+  return { ctx, services, logger, seams, parent, enforcer, locks, overrides, agents, headers, hooks, admit, child, start,
     setConfig: (value: Config) => { config = value }, setProjection: (value: typeof projection) => { projection = value } }
 }
 describe('user model authority across child lifetimes', () => {
@@ -147,7 +159,7 @@ describe('cold and historical children', () => {
   })
   it('uses persisted locks after a new authority starts, independent of current defaults', async () => {
     const h = setup(); await h.start()
-    const fresh = new RouteEnforcer(h.ctx as never, () => ({ subagent: { mode: 'custom', selection: opus } }), { ready: async () => {}, get: () => undefined }, h.locks, h.admit)
+    const fresh = new RouteEnforcer(h.ctx as never, () => ({ subagent: { mode: 'custom', selection: opus } }), { ready: async () => {}, get: () => undefined }, h.locks, h.admit, h.seams)
     expect(await fresh.request(h.child(), opus as never)).toEqual(glm)
     await fresh.verify({ sessionId: 'child', ...glm })
   })
@@ -242,5 +254,49 @@ describe('unverified saved route status', () => {
     expect(await h.enforcer.status('parent')).toMatchObject({ state: 'blocked', error: 'Model unavailable' })
     h.overrides.set('parent', step)
     expect(await h.enforcer.status('parent')).toMatchObject({ state: 'unverified', expected: step })
+  })
+})
+describe('model lock host seams', () => {
+  it('pauses delegation and child requests while a start seam is missing, keeps main requests, and resumes without restart', async () => {
+    const h = setup(); const { agent } = await h.start()
+    const entries = h.services.subagents!; const saved = { ...entries }
+    delete entries.startActivation; delete entries.startContinuable
+    const launch = vi.fn()
+    await expect(h.enforcer.delegate('local', h.parent, opus, launch)).rejects.toThrow('subagents.startActivation')
+    expect(launch).not.toHaveBeenCalled()
+    await expect(h.enforcer.request(agent, opus as never)).rejects.toThrow('subagents.startContinuable')
+    await expect(h.enforcer.verify({ sessionId: agent.id, ...glm })).rejects.toThrow('host seams')
+    await h.enforcer.verify({ sessionId: 'parent', ...opus })
+    expect(await h.enforcer.status(agent.id)).toMatchObject({ state: 'blocked', seams: [
+      { capability: 'model-lock', missing: ['subagents.startActivation', 'subagents.startContinuable', 'subagents.start'], mismatched: [] }] })
+    Object.assign(entries, saved)
+    await h.enforcer.verify({ sessionId: agent.id, ...glm })
+    const status = await h.enforcer.status(agent.id)
+    expect(status.state).toBe('locked'); expect(status.seams).toBeUndefined()
+  })
+  it('keeps the compaction effort check strict on unexpected compaction data, reports it, and keeps delegating', async () => {
+    const h = setup(); const { agent } = await h.start(); h.enforcer.installGuards()
+    const request = Object.freeze({ sessionId: agent.id, provider: glm.provider, model: glm.model, purpose: 'compaction' as const })
+    const emit = (data: unknown) => { for (const hook of h.hooks.get('session/event') ?? []) hook(agent.session, { type: 'compaction/start', data }) }
+    emit({})
+    await expect(h.enforcer.verify(request)).rejects.toThrow('reasoningEffort')
+    emit(undefined)
+    await expect(h.enforcer.verify(request)).rejects.toThrow('reasoningEffort')
+    // The rejected request marks this child; the report explains the stricter check.
+    expect(await h.enforcer.status(agent.id)).toMatchObject({ state: 'blocked', seams: [{ capability: 'model-lock', missing: [], mismatched: [COMPACTION_ID_SEAM] }] })
+    expect((await h.start('next')).options).toEqual(glm)
+    emit({ compactionId: 'c2' })
+    await expect(h.enforcer.verify(request)).resolves.toBeUndefined()
+    const status = await h.enforcer.status(agent.id)
+    expect(status.state).toBe('locked'); expect(status.seams).toBeUndefined()
+  })
+  it('logs a degraded capability once per change in its missing seams', async () => {
+    const h = setup(); const llm = h.services.llm!; const resolve = llm.resolveCallConfig
+    delete llm.resolveCallConfig
+    for (let i = 0; i < 3; i++) await h.enforcer.status('parent')
+    expect(h.logger.warn).toHaveBeenCalledTimes(1)
+    expect(String(h.logger.warn.mock.calls[0]![0])).toContain('llm.resolveCallConfig')
+    llm.resolveCallConfig = resolve; await h.enforcer.status('parent'); await h.enforcer.status('parent')
+    expect(h.logger.info).toHaveBeenCalledTimes(1); expect(h.logger.warn).toHaveBeenCalledTimes(1)
   })
 })

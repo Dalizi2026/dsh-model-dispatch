@@ -23,7 +23,7 @@ export const zh = {
   noSession: '请先打开一个普通会话以加载模型列表。',
   loadError: '无法加载模型列表',
   saveError: '保存失败',
-  unavailable: '设置暂不可用。请使用 DSH 0.2.0-rc.2 或更高版本。',
+  unavailable: '设置暂不可用：DSH 未提供 model-switch 的设置表单。请完全退出并重新打开 DSH；仍不可用时请更新插件或反馈问题。',
   planHeader: '计划待审',
   planDiscuss: '去聊天里说',
   planDecline: '拒绝',
@@ -73,6 +73,17 @@ export const zh = {
   routeConflict: '已忽略工具或预设的冲突选模',
   saved: '已保存',
   statusSaving: '保存中…',
+  seamWarning: '功能已降级',
+  seamLockPaused: '子代理派发已暂停：DSH 缺少插件需要的接缝，模型锁无法生效。',
+  seamLockStrict: '模型锁按保守方式运行：DSH 的事件数据与预期不符，子代理的压缩请求按严格规则检查，可能被拦下。',
+  seamPlanOff: '计划自动换模已关闭：DSH 缺少插件需要的接缝。计划模式照常可用，但不再自动切换模型。',
+  seamPlanLate: '计划自动换模按保守方式运行：DSH 的事件数据与预期不符，批准计划后主模型可能晚一步恢复。',
+  seamChatOff: '聊天栏模型芯片未加载：DSH 缺少插件需要的服务，已改用 DSH 原生模型选择。子代理模型锁仍由宿主执行。',
+  seamCatalogOff: '子代理目录未加载：DSH 缺少插件需要的服务，已改用 DSH 原生目录。',
+  seamHint: '可能是 DSH 升级改动了接口，请更新插件或反馈问题。',
+  seamMissing: '缺少：',
+  seamMismatched: '数据格式不符：',
+  seamsUnavailable: '无法读取宿主接缝检查结果',
 }
 
 export const en = {
@@ -98,7 +109,7 @@ export const en = {
   noSession: 'Open an ordinary session to load the model catalog.',
   loadError: 'Failed to load models',
   saveError: 'Failed to save',
-  unavailable: 'Settings are unavailable. Requires DSH 0.2.0-rc.2 or later.',
+  unavailable: 'Settings are unavailable: DSH did not provide the model-switch settings form. Quit and reopen DSH; if it persists, update the plugin or report an issue.',
   planHeader: 'Plan awaiting review',
   planDiscuss: 'Discuss in chat',
   planDecline: 'Decline',
@@ -148,6 +159,17 @@ export const en = {
   routeConflict: 'Conflicting tool or preset selection ignored',
   saved: 'Saved',
   statusSaving: 'Saving…',
+  seamWarning: 'Degraded',
+  seamLockPaused: 'Subagent dispatch is paused: DSH is missing host seams the model lock needs.',
+  seamLockStrict: 'The model lock runs conservatively: DSH event data has an unexpected shape, so subagent compaction requests are checked strictly and may be blocked.',
+  seamPlanOff: 'Plan auto-switch is off: DSH is missing host seams it needs. Plan mode still works but no longer switches models.',
+  seamPlanLate: 'Plan auto-switch runs conservatively: DSH event data has an unexpected shape, so the main model may be restored one step later after approval.',
+  seamChatOff: 'The chat model chips did not load: DSH is missing services they need, so the native DSH model picker is shown. The host still enforces the subagent model lock.',
+  seamCatalogOff: 'The subagent catalog did not load: DSH is missing a service it needs, so the native DSH catalog is shown instead.',
+  seamHint: 'A DSH update may have changed these interfaces; update the plugin or report an issue.',
+  seamMissing: 'Missing: ',
+  seamMismatched: 'Unexpected data: ',
+  seamsUnavailable: 'Cannot read the host seam check',
 }
 
 export type LocaleKey = keyof typeof zh

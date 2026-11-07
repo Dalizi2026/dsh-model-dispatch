@@ -6,7 +6,7 @@
 
 项目术语见 [GLOSSARY.md](GLOSSARY.md)，架构决策见 [ADR 0001：以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
 
-> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
+> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.x** 的接口适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
 
 ## 功能
 
@@ -17,6 +17,12 @@
 - **按会话子代理覆盖**：聊天栏的子代理选择保存为会话覆盖（持久化），不改设置默认；可一键恢复为设置默认。
 - **全部模型可委派**：主代理、子代理与计划模型共用宿主当前模型目录。人用菜单保留完整目录，新增模型自动可用；模型发现工具只报告用户锁定的路由，不能自行改选。
 - **保存前路由校验**：保存覆盖与创建子代理前，通过宿主 `resolveCallConfig` 校验 provider/model/effort 的真实组合；无效组合直接给出具体错误，不会等子代理运行失败。
+
+## 1.3.0 升级
+
+- 不再按 DSH 版本号拦截安装（`engines.dsh: "*"`），能不能运行由宿主接缝决定。
+- 每项能力在用到时检查自己需要的接缝：模型锁缺接缝时暂停子代理派发，计划自动换模缺接缝时整项关闭，界面入口缺哪个只少哪个。
+- 聊天栏子代理芯片、设置页横幅和宿主日志会写明缺了哪些接缝。完整说明见 [1.3.0 说明](docs/1.3.0-host-seams.md)。
 
 ## 1.2.0 升级
 
@@ -33,7 +39,7 @@
 
 ## 安装
 
-以 **DeepSeek Harness Desktop 0.2.1-rc.5** 为适配基线，验证范围见 [1.2.3 兼容说明](docs/1.2.3-compatibility.md)。独立的 0.2.2 alpha 分支不在此次兼容声明内。
+任何 DSH 版本都可以安装，能运行哪些功能由宿主接缝决定。跑通完整契约测试的 DSH 版本见[已验证版本](docs/verified-versions.md)，它只是证据，不是安装条件。在 0.2.2-rc.1 上，计划自动换模会晚一次请求生效，详见该记录。
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
@@ -70,11 +76,11 @@ npm run build       # tsc（双工程）+ tsdown 客户端 bundle
 DSH_TEST_MODULE_ROOT=/绝对路径/dsh/node_modules node scripts/verify-host.mjs
 ```
 
-脚本使用独立临时 profile，核对原生工具、嵌套委派、请求头和适配器调用，并断言 Opus 派发次数为 0，不操作正在使用的桌面 profile。
+脚本使用独立临时 profile，核对原生工具、嵌套委派、请求头和适配器调用，断言 Opus 派发次数为 0、接缝报告为空，不操作正在使用的桌面 profile。`.github/workflows/regression.yml` 会在每个列出的 DSH 版本上运行它，`workflow_dispatch` 可以输入任意版本；结果的记录方式见[已验证版本](docs/verified-versions.md)。
 
 ## 已知限制
 
-- 与 DSH 0.2.x 的内部接口（configForms、sessionProjections、sessionController、planMode）强耦合；DSH 升级需回归测试。
+- 运行时检查只能确认接缝存在，确认不了行为没变。事件改名、时序变化和模块导出缺失只能靠原生契约测试发现，新的 DSH 版本发布后需要跑一遍。
 - 运行中的计划审批读取结构化 `approved` 值；跨重启恢复还会读取历史工具结果与 `plan/mode` 事件，宿主事件格式变化需回归验证。
 - 子代理内部不参与计划换模，继续使用自身锁定；嵌套委派继承该锁定。
 - 无法保证实际模型的外部后端会被拒绝。配置与锁异常需要修复或明确确认历史模型，没有自动换模兜底。

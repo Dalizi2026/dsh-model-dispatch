@@ -4,6 +4,7 @@ import type { AgentOptions } from '@deepseek-ai/dsh-agent';
 import { type Config, type ModelSelectionConfig } from './shared.ts';
 import { type LockStore } from './route-locks.ts';
 import { type RouteLock, type RouteSource, type RouteStatus } from './route-contract.ts';
+import { type HostSeams } from './host-seams.ts';
 export declare class RouteBlocked extends Error {
     readonly code: string;
     constructor(code: string, message: string);
@@ -36,6 +37,7 @@ export declare class RouteEnforcer {
     private overrides;
     readonly locks: LockStore;
     private admit;
+    private seams;
     private state;
     private failure?;
     private initialization?;
@@ -46,7 +48,9 @@ export declare class RouteEnforcer {
     private attached;
     private requestGuards;
     private conflicts;
-    constructor(ctx: Context, current: () => Config, overrides: Overrides, locks: LockStore, admit: RouteAdmission);
+    constructor(ctx: Context, current: () => Config, overrides: Overrides, locks: LockStore, admit: RouteAdmission, seams: HostSeams);
+    /** Checked at every use: a missing seam pauses children until the host provides it again. */
+    private requireSeams;
     /** Call after installing guards. Errors are contained so guards stay mounted. */
     initialize(): Promise<void>;
     fail(cause: unknown): void;
