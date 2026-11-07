@@ -14,7 +14,7 @@ Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions 
 
 ## Features
 
-- **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
+- **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips, each naming the role, model, and reasoning effort (narrow windows show the model only) in the host's composer-control style. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
 - **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves; **Apply** stays disabled until something changes. Cancel, Escape, or clicking outside discards the draft — nothing is written.
 - **Favorites keep the reasoning effort**: a favorite is a model + effort combination; several efforts of one model share a single row of chips, and picking a model by name starts from the effort you last applied with it. See [favorites and reasoning effort](docs/favorite-efforts.md) (Chinese).
 - **Three settings rows**: new-session default model, subagent default model, and planning model. One scope hint per row.

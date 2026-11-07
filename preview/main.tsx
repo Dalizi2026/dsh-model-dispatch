@@ -112,14 +112,34 @@ function App() {
       <section style={{ ...card, marginTop: 'auto' }}>
         <h2 style={h2}>聊天栏</h2>
         <div style={composer}>
-          <span style={{ ...muted, flex: 1 }}>给 Droid 发消息…</span>
-          <ModelPicker compact sessionId="preview" access={access} value={subagent ?? settingsDefault ?? main} onChange={save(setSubagent)} t={t} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(subagent ? 'sessionSource' : settingsDefault ? 'defaultSource' : 'followingMain')} scopeHint={t('subagentScope')} />
-          <ModelPicker compact sessionId="preview" access={access} value={main} onChange={save(setMain)} t={t} placement="top" roleLabel={t('chatMainRole')} sourceLabel={t('sessionSource')} scopeHint={t('mainScope')} />
+          <HostControls />
+          <span style={{ flex: 1 }} />
+          {/* Mirrors SessionModelControls: one bar, main then subagent, 10px apart. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ModelPicker compact sessionId="preview" access={access} value={main} onChange={save(setMain)} t={t} placement="top" roleLabel={t('chatMainRole')} sourceLabel={t('sessionSource')} scopeHint={t('mainScope')} />
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <ModelPicker compact sessionId="preview" access={access} value={subagent ?? settingsDefault ?? main} onChange={save(setSubagent)} t={t} placement="top" roleLabel={t('chatSubagentRole')} sourceLabel={t(subagent ? 'sessionSource' : settingsDefault ? 'defaultSource' : 'followingMain')} scopeHint={t('subagentScope')} />
+              <span style={{ color: '#38845a', fontSize: 13, lineHeight: '20px', padding: '0 4px' }}>✓</span>
+            </span>
+          </div>
+          <Send />
         </div>
       </section>
     </div>
   )
 }
+
+/** Stand-ins for the host composer controls beside the chips (plus button, permission preset). */
+function HostControls() {
+  return <>
+    <span style={{ display: 'inline-grid', placeItems: 'center', width: 28, height: 28, borderRadius: '50%', color: '#555560', fontSize: 18 }}>+</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 28, padding: '0 8px', color: '#555560', fontSize: 13, lineHeight: '20px' }}>◔ 完全权限 <Chevron /></span>
+  </>
+}
+function Send() {
+  return <span style={{ display: 'inline-grid', placeItems: 'center', width: 32, height: 32, marginLeft: 4, borderRadius: '50%', background: '#8f2b2b', color: '#fff', fontSize: 15 }}>↑</span>
+}
+const Chevron = () => <svg width={12} height={12} viewBox="0 0 16 16" fill="none" aria-hidden="true" strokeWidth={1.3} style={{ color: '#777784', flex: 'none' }}><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6" stroke="currentColor" /></svg>
 
 const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16, minHeight: '100vh', boxSizing: 'border-box', maxWidth: 960, margin: '0 auto', padding: 20, font: '13px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif', color: '#27272f' }
 const bar: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10 }
@@ -128,7 +148,7 @@ const h2: CSSProperties = { margin: '0 0 10px', fontSize: 12, fontWeight: 600, c
 const muted: CSSProperties = { color: '#777784', fontSize: 12 }
 const dd: CSSProperties = { margin: '0 0 4px', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }
 const pre: CSSProperties = { maxHeight: 240, overflow: 'auto', margin: '6px 0 0', padding: 8, borderRadius: 8, background: '#f6f6f9', fontSize: 11 }
-const composer: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: '1px solid #dedee3', borderRadius: 14, background: '#fafafc' }
+const composer: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', border: '1px solid #e6e6ea', borderRadius: 18, background: '#fff', boxShadow: '0 2px 10px #0000000d' }
 const chip = (active: boolean): CSSProperties => ({ height: 28, padding: '0 12px', border: `1px solid ${active ? '#5269dc' : '#dedee3'}`, borderRadius: 7, background: active ? '#eef0fb' : '#fff', color: active ? '#5269dc' : '#555560', font: 'inherit', fontSize: 12, cursor: 'pointer' })
 
 document.body.style.margin = '0'

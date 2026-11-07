@@ -1,12 +1,15 @@
 .root { position: relative; min-width: 0; }
-.trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 248px; height: 30px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 8px; outline: none; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #27272f); font: inherit; font-size: 12px; cursor: pointer; }
+/* One type size per trigger, so role, model, and effort share a baseline. Two label tiers only: the model is
+   primary and medium; role and effort are secondary. Hue stays reserved for status and interaction. */
+.trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 248px; height: 30px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 8px; outline: none; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #27272f); font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
 .trigger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
 .trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #5269dc); outline-offset: 2px; }
 .trigger:disabled { opacity: .6; cursor: default; }
-.role { flex: none; font-size: 10px; font-weight: 600; color: var(--dsw-alias-label-tertiary, #777784); }
+.role { flex: none; font-weight: 400; color: var(--dsw-alias-label-secondary, #555560); }
 .triggerLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 168px; font-weight: 500; }
-.triggerEffort { flex: none; color: var(--dsw-alias-label-tertiary, #777784); font-size: 10px; }
-.chevron { flex: none; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #777784); }
+.triggerEffort { flex: none; color: var(--dsw-alias-label-secondary, #555560); }
+.chevron { flex: none; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #777784); transition: transform 120ms ease-out; }
+.trigger[aria-expanded="true"] .chevron { transform: rotate(180deg); }
 .menu { position: fixed; z-index: 10000; width: min(360px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden; padding: 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 14px; background: var(--dsw-alias-bg-layer-1, #fff); box-shadow: 0 12px 40px #0002, 0 2px 8px #0001; color: var(--dsw-alias-label-primary, #27272f); box-sizing: border-box; }
 .menu[data-upwards="true"] { transform: translateY(-100%); }
 .menuHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 3px 4px 9px; font-size: 13px; font-weight: 600; }
@@ -62,13 +65,18 @@
 .warning { padding: 6px 4px; font-size: 10px; color: var(--dsw-alias-label-tertiary, #777784); }
 @media (max-width: 640px) { .trigger { max-width: 190px; } .triggerEffort { display: none; } }
 
-.compact .trigger { max-width: 180px; }
-.compact .triggerLabel { max-width: 110px; display: var(--dsh-composer-model-text-display, block); }
-.compact .triggerEffort { display: none; }
+/* Composer chips join the host's borderless composer controls: same height, type, and hover surface. */
+.compact .trigger { max-width: 260px; height: 28px; gap: 5px; padding: 0 6px 0 8px; border-color: transparent; border-radius: var(--dsw-radius-sm, 6px); background: transparent; }
+.compact .trigger:hover:not(:disabled), .compact .trigger[aria-expanded="true"] { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
+.compact .triggerLabel { max-width: 140px; display: var(--dsh-composer-model-text-display, block); }
+/* The chip shows the exact model and effort new requests use; the model name truncates first. */
+.compact .triggerEffort { display: var(--dsh-composer-model-text-display, inline); }
 
 .stretch .trigger { width: 100%; max-width: none; height: 36px; padding: 0 11px; }
 .stretch .triggerLabel { flex: 1; max-width: none; text-align: left; }
 .stretch .triggerEffort { display: inline; }
+/* Narrow windows keep only the model name in composer chips; the menu still names the effort. */
+@media (max-width: 640px) { .compact .triggerEffort { display: none; } }
 
 .clear[aria-pressed="true"] { color: var(--dsw-alias-state-business-primary, #5269dc); }
 .selectionEditor { flex: none; padding: 10px 4px 2px; border-top: 1px solid var(--dsw-alias-border-l2, #dedee3); }
@@ -93,7 +101,7 @@
 .cancel:focus-visible, .apply:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #5269dc); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .effort, .favoriteToggle { transition: none; }
+  .effort, .favoriteToggle, .chevron { transition: none; }
   .chipStar, .rowStar { transition: opacity 120ms ease-out; transform: none; }
   .effort:active:not(:disabled), .favoriteToggle:active:not(:disabled), .chipStar:active:not(:disabled), .rowStar:active:not(:disabled) { transform: none; }
 }
