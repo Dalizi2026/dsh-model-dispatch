@@ -4,17 +4,22 @@ English | [中文](README.zh.md)
 
 Pick separate models and reasoning efforts for the main session, subagents, and plan mode in DeepSeek Harness (DSH).
 
-> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5**: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
+Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions are in [ADR 0001: host seams, not versions, decide whether the plugin runs](docs/adr/0001-host-seams-not-versions.md) (Chinese).
+
+> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for the **DSH 0.2.x** interfaces: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
+
+> **1.3.0: host seams, not versions, decide whether the plugin runs.** The DSH version gate is gone (`engines.dsh: "*"`). Each capability checks the host seams it needs when it is used; a missing seam pauses the model lock, switches plan auto-switch off, or hides one UI entry, and the chat chip, settings banner and host log name the missing seams. See [1.3.0 notes](docs/1.3.0-host-seams.md) (Chinese).
 
 > **1.2.0: user-selected subagent routes are enforced for the child's lifetime.** Tool arguments and preset model preferences cannot override the session pick or settings default. Missing or invalid locks block requests instead of falling back. Historical children require human model confirmation before continuing. See [upgrade notes](docs/1.2.0-route-locking.md).
 
 ## Features
 
-- **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
-- **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves. Cancel, Escape, or clicking outside discards the draft — nothing is written.
+- **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips, each naming the role, model, and reasoning effort (narrow windows show the model only) in the host's composer-control style. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
+- **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves; **Apply** stays disabled until something changes. Cancel, Escape, or clicking outside discards the draft — nothing is written.
+- **Favorites keep the reasoning effort**: a favorite is a model + effort combination; several efforts of one model share a single row of chips, and picking a model by name starts from the effort you last applied with it. See [favorites and reasoning effort](docs/favorite-efforts.md) (Chinese).
 - **Three settings rows**: new-session default model, subagent default model, and planning model. One scope hint per row.
 - **Plan-mode auto switching**: entering plan mode switches to the planning model; approving the plan or `/plan off` restores the pre-plan main model and effort before the first execution request. The review panel shows the model that will be restored.
-- **Per-session subagent overrides**: the chat-bar subagent pick is stored as a durable session override and never changes the settings default; restore to the settings default in one click.
+- **Per-session subagent overrides**: the chat-bar subagent chip always shows the model new subagents will use. Until you pick one it follows the settings default (or the main model when unset); a pick is stored as a durable session override and never changes the settings default. To go back to the default model, pick it from the list.
 - **Route validation before saving**: overrides and child creation validate the exact provider/model/effort through the host's `resolveCallConfig`; invalid combos fail immediately with the real reason instead of failing inside a run.
 
 ## Routing rules
@@ -25,7 +30,7 @@ Pick separate models and reasoning efforts for the main session, subagents, and 
 
 ## Install
 
-Targets **DeepSeek Harness Desktop 0.2.1-rc.5**. See [1.2.3 compatibility notes](docs/1.2.3-compatibility.md) for verification scope. The separate 0.2.2 alpha channel is not included in this compatibility claim.
+Installs on any DSH version; host seams decide what runs. DSH versions where the full contract suite passed are listed in [verified versions](docs/verified-versions.md) (Chinese): evidence, not an install condition.
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
@@ -44,7 +49,7 @@ Replace `desktop` with the profile you actually use. Wait for active tasks to fi
 | Session subagent overrides | `$DSH_HOME/storages/model-switch/session-overrides.json` |
 | Immutable child routes | `$DSH_HOME/storages/model-switch/child-route-locks.json` |
 | Pre-plan main model | `$DSH_HOME/storages/model-switch/plan-main-models.json` (cleared after a successful restore) |
-| Menu favorites / recents | Browser localStorage (not synced) |
+| Menu favorites / recents / last efforts | Browser localStorage `dsh-model-switch/picker-v2` (not synced) |
 
 ## Build and test
 
@@ -52,6 +57,7 @@ Replace `desktop` with the profile you actually use. Wait for active tasks to fi
 npm ci
 npm test        # vitest
 npm run build       # tsc (two projects) + tsdown client bundle
+npm run preview     # interactive model-menu preview at http://127.0.0.1:5179/
 ```
 
 Coverage includes conflicting tool/native routes, immutable child locks, concurrent saves, corruption/write failure rejection, cold historical confirmation with authentication and ownership checks, nested delegation, request-boundary rejection, plan restoration, independent defaults and client acknowledgement races.
@@ -62,11 +68,11 @@ For an isolated native-host test with simulated models (no paid requests):
 DSH_TEST_MODULE_ROOT=/absolute/path/to/dsh/node_modules node scripts/verify-host.mjs
 ```
 
-The script creates a separate temporary profile, checks native tool execution, nested locks, request headers and adapter dispatch, and asserts zero Opus dispatches. It leaves the active desktop profile untouched.
+The script creates a separate temporary profile, checks native tool execution, nested locks, request headers and adapter dispatch, asserts zero Opus dispatches and an empty host seam report. It leaves the active desktop profile untouched. `.github/workflows/regression.yml` runs it on each listed DSH version, and `workflow_dispatch` accepts any version; see [verified versions](docs/verified-versions.md) for recording a result.
 
 ## Known limitations
 
-- Tightly coupled to DSH 0.2.x internals (configForms, sessionProjections, sessionController, planMode); re-run the suite after a DSH upgrade.
+- Runtime checks prove a host seam exists, not that its behavior is unchanged. Event renames, timing changes and missing module exports are caught only by the native contract suite; run it on each new DSH version.
 - Live plan approval uses the canonical `approved` value. Recovering an approval across a process restart also uses the durable tool result and `plan/mode` events; native event changes require regression checks.
 - Child sessions do not switch models in plan mode. They keep their own immutable lock; nested delegation inherits it.
 - External backends that cannot prove the dispatch route are rejected. Missing/corrupt locks or unavailable models require repair or explicit historical confirmation; there is no automatic model fallback.

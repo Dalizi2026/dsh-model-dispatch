@@ -4,17 +4,26 @@
 
 为 DeepSeek Harness (DSH) 的主会话、子代理与计划模式分别选择模型与思考强度。
 
-> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.0-rc.2 / 0.2.1-rc.1–rc.5** 适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
+项目术语见 [GLOSSARY.md](GLOSSARY.md)，架构决策见 [ADR 0001：以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
+
+> 本插件参考了 [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) 的原始设计与代码，在其基础上针对 **DSH 0.2.x** 的接口适配并做了大量优化：跟随 0.2.x 的设置系统（volatile Config + configForms）、子代理投影与会话模型接口重写，并新增计划模式自动切换、按会话覆盖、路由校验与新 UI。上游仓库只支持 0.1.x。
 
 ## 功能
 
-- **聊天栏双入口**：输入框同时显示 **主模型** 与 **子代理** 两个芯片。主模型使用 DSH 原生切换接口；子代理选择只影响当前会话之后新启动的子代理。
-- **统一模型菜单**：所有入口共用同一个菜单——搜索、提供方分组、收藏、最近使用、思考强度。选模型后菜单保持打开，直接调强度，点 **应用** 一次保存；取消、Esc 或点击菜单外丢弃草稿，不写配置。
+- **聊天栏双入口**：输入框同时显示 **主模型** 与 **子代理** 两个芯片，每个芯片写明角色、模型和思考强度（窄窗口只显示模型），样式与宿主聊天栏控件一致。主模型使用 DSH 原生切换接口；子代理选择只影响当前会话之后新启动的子代理。
+- **统一模型菜单**：所有入口共用同一个菜单——搜索、提供方分组、收藏、最近使用、思考强度。选模型后菜单保持打开，直接调强度，点 **应用** 一次保存，没有改动时 **应用** 不可点；取消、Esc 或点击菜单外丢弃草稿，不写配置。
+- **收藏带思考强度**：收藏保存“模型 + 强度”组合，同一模型的多个强度合并成一行标签；点模型名自动带上次用的强度。规则与迁移见 [收藏模型与思考强度](docs/favorite-efforts.md)。
 - **设置页三项**：新会话默认模型、子代理默认模型、制定计划模型。每项一句说明，无重复装饰。
 - **计划模式自动切换**：进入计划模式自动切到“制定计划”模型做计划；批准计划或 `/plan off` 后，在第一条执行请求前自动恢复进入计划前的主模型与推理档位。审批面板显示将恢复的模型。
-- **按会话子代理覆盖**：聊天栏的子代理选择保存为会话覆盖（持久化），不改设置默认；可一键恢复为设置默认。
+- **按会话子代理覆盖**：聊天栏子代理芯片显示的就是之后新子代理会用的模型。没在芯片里选过时，它跟随设置默认（未设置则跟随主模型）；选过后保存为会话覆盖（持久化），不改设置默认。想换回默认模型，直接在列表里选它即可。
 - **全部模型可委派**：主代理、子代理与计划模型共用宿主当前模型目录。人用菜单保留完整目录，新增模型自动可用；模型发现工具只报告用户锁定的路由，不能自行改选。
 - **保存前路由校验**：保存覆盖与创建子代理前，通过宿主 `resolveCallConfig` 校验 provider/model/effort 的真实组合；无效组合直接给出具体错误，不会等子代理运行失败。
+
+## 1.3.0 升级
+
+- 不再按 DSH 版本号拦截安装（`engines.dsh: "*"`），能不能运行由宿主接缝决定。
+- 每项能力在用到时检查自己需要的接缝：模型锁缺接缝时暂停子代理派发，计划自动换模缺接缝时整项关闭，界面入口缺哪个只少哪个。
+- 聊天栏子代理芯片、设置页横幅和宿主日志会写明缺了哪些接缝。完整说明见 [1.3.0 说明](docs/1.3.0-host-seams.md)。
 
 ## 1.2.0 升级
 
@@ -31,7 +40,7 @@
 
 ## 安装
 
-以 **DeepSeek Harness Desktop 0.2.1-rc.5** 为适配基线，验证范围见 [1.2.3 兼容说明](docs/1.2.3-compatibility.md)。独立的 0.2.2 alpha 分支不在此次兼容声明内。
+任何 DSH 版本都可以安装，能运行哪些功能由宿主接缝决定。跑通完整契约测试的 DSH 版本见[已验证版本](docs/verified-versions.md)，它只是证据，不是安装条件。
 
 ```bash
 dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
@@ -50,7 +59,7 @@ dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
 | 会话子代理覆盖 | `$DSH_HOME/storages/model-switch/session-overrides.json` |
 | 子代理不可变模型锁 | `$DSH_HOME/storages/model-switch/child-route-locks.json` |
 | 计划前主模型暂存 | `$DSH_HOME/storages/model-switch/plan-main-models.json`（恢复成功后清除） |
-| 菜单收藏 / 最近使用 | 浏览器 localStorage（不同步设备） |
+| 菜单收藏 / 最近使用 / 上次强度 | 浏览器 localStorage `dsh-model-switch/picker-v2`（不同步设备） |
 
 ## 构建与测试
 
@@ -58,6 +67,7 @@ dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
 npm ci
 npm test        # vitest
 npm run build       # tsc（双工程）+ tsdown 客户端 bundle
+npm run preview     # 模型菜单可交互预览，http://127.0.0.1:5179/
 ```
 
 测试覆盖：工具与原生启动参数冲突、锁定持久化与并发写入、损坏及写入失败、历史确认的认证与父子关系、嵌套继承、最终请求拒绝、计划边界与默认隔离、客户端保存确认竞态。
@@ -68,11 +78,11 @@ npm run build       # tsc（双工程）+ tsdown 客户端 bundle
 DSH_TEST_MODULE_ROOT=/绝对路径/dsh/node_modules node scripts/verify-host.mjs
 ```
 
-脚本使用独立临时 profile，核对原生工具、嵌套委派、请求头和适配器调用，并断言 Opus 派发次数为 0，不操作正在使用的桌面 profile。
+脚本使用独立临时 profile，核对原生工具、嵌套委派、请求头和适配器调用，断言 Opus 派发次数为 0、接缝报告为空，不操作正在使用的桌面 profile。`.github/workflows/regression.yml` 会在每个列出的 DSH 版本上运行它，`workflow_dispatch` 可以输入任意版本；结果的记录方式见[已验证版本](docs/verified-versions.md)。
 
 ## 已知限制
 
-- 与 DSH 0.2.x 的内部接口（configForms、sessionProjections、sessionController、planMode）强耦合；DSH 升级需回归测试。
+- 运行时检查只能确认接缝存在，确认不了行为没变。事件改名、时序变化和模块导出缺失只能靠原生契约测试发现，新的 DSH 版本发布后需要跑一遍。
 - 运行中的计划审批读取结构化 `approved` 值；跨重启恢复还会读取历史工具结果与 `plan/mode` 事件，宿主事件格式变化需回归验证。
 - 子代理内部不参与计划换模，继续使用自身锁定；嵌套委派继承该锁定。
 - 无法保证实际模型的外部后端会被拒绝。配置与锁异常需要修复或明确确认历史模型，没有自动换模兜底。

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { installSubagentRouting } from '../src/subagent-routing.ts'
 import { modelRouteResolver } from '../src/model-route.ts'
-import { authorityFor } from './route-fixture.ts'
+import { authorityFor, hostServices } from './route-fixture.ts'
 import type { Config, ModelSelectionConfig } from '../src/shared.ts'
 const invalid = { provider: 'invalid', model: 'flash', reasoningEffort: 'high' }
 const valid = { provider: 'glm', model: 'flash', reasoningEffort: 'high' }
@@ -17,7 +17,9 @@ function setup(override: ModelSelectionConfig | undefined = valid, config: Confi
     return { ...next, maxTokens: 1000 }
   })
   let dispose!: () => void
-  const scope = { subagents: runtime, get: (name: string) => name === 'llm' ? { resolveCallConfig } : undefined,
+  const llm = { resolveCallConfig, listProviders: () => [], listModels: async () => [] }
+  const scope: Record<string, unknown> = { subagents: runtime, get: hostServices({ llm, subagents: runtime }),
+    inject(_deps: unknown, apply: (ctx: unknown) => void) { apply(scope) },
     effect(install: () => () => void) { dispose = install() } }
   const authority = authorityFor(scope, () => config, id => id === parent.id ? override : undefined, modelRouteResolver(scope as never))
   installSubagentRouting(scope as never, authority)
@@ -61,5 +63,32 @@ describe('user authority at every native startup entry', () => {
     const h = setup(); const spec = { provider: 'standard', childId: 'reserved', delivery: 'caller', label: 'test', request: { parent, outputSchema: { type: 'object' } } }
     await h.runtime.startActivation(spec)
     expect(h.startActivation).toHaveBeenCalledWith({ ...spec, request: { ...spec.request, agentOptions: valid } })
+  })
+})
+describe('subagents service as a host seam', () => {
+  function late(runtime: Record<string, unknown>) {
+    let provide: ((ctx: unknown) => void) | undefined
+    const services: Record<string, unknown> = { llm: { resolveCallConfig: async (route: unknown) => route, listProviders: () => [], listModels: async () => [] } }
+    const scope = { get: hostServices(services), logger: { warn: vi.fn(), info: vi.fn() },
+      inject(_deps: unknown, apply: (ctx: unknown) => void) { provide = apply },
+      effect(install: () => () => void) { install() } }
+    const authority = authorityFor(scope, () => ({}), () => valid, async route => route)
+    installSubagentRouting(scope as never, authority)
+    return { authority, offer() { services.subagents = runtime; provide!({ ...scope, subagents: runtime }) } }
+  }
+  it('installs without the service and routes every start once the host provides it', async () => {
+    const start = vi.fn(async (..._args: unknown[]) => 'started')
+    const runtime = { start, getProvider: () => ({ prepareContinuable() {} }) }
+    const h = late(runtime)
+    expect(runtime.start).toBe(start)
+    h.offer()
+    await (runtime.start as typeof start)('standard', { parent, agentOptions: invalid })
+    expect(start).toHaveBeenCalledWith('standard', { parent, agentOptions: valid })
+  })
+  it('reports missing start entries as model-lock seams instead of failing the whole authority', async () => {
+    const h = late({ getProvider: () => ({ prepareContinuable() {} }) }); h.offer()
+    const status = await h.authority.status('s1')
+    expect(status.health).toBe('ready')
+    expect(status.seams).toEqual([{ capability: 'model-lock', missing: ['subagents.startActivation', 'subagents.startContinuable', 'subagents.start'], mismatched: [] }])
   })
 })

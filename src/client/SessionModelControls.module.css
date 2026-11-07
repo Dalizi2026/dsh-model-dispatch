@@ -1,1 +1,2 @@
-.bar { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; }
+/* Chips group by proximity: tight inside one chip, a clear gap between main and subagent. */
+.bar { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; min-width: 0; }

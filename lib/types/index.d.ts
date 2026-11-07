@@ -19,7 +19,6 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     planPlanning: import("@deepseek-ai/schemastery").default<NoInfer<import("./shared.ts").RouteSwitchConfig>, NoInfer<import("./shared.ts").RouteSwitchConfig>, "volatile-defined">;
 }>>, "plain">;
 export declare const name = "model-switch";
-export declare const inject: string[];
 /**
  * Wrap subagent start paths with model routes from live plugin config.
  *

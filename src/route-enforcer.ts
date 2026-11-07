@@ -13,6 +13,7 @@ import { mergeAgentOptions } from './merge.ts'
 import { delegationSelection } from './delegation-selection.ts'
 import { type LockStore, validSelection } from './route-locks.ts'
 import { PLUGIN_VERSION, ROUTE_POLICY_VERSION, type RouteLock, type RouteSource, type RouteStatus } from './route-contract.ts'
+import { COMPACTION_ID_SEAM, lockPausedMessage, type HostSeams } from './host-seams.ts'
 
 export class RouteBlocked extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'ModelRouteBlocked' }
@@ -38,7 +39,13 @@ export class RouteEnforcer {
   private requestGuards = new WeakMap<object, () => unknown>()
   private conflicts = new Map<string, Partial<ModelSelectionConfig>>()
   constructor(private ctx: Context, private current: () => Config, private overrides: Overrides,
-    readonly locks: LockStore, private admit: RouteAdmission) {}
+    readonly locks: LockStore, private admit: RouteAdmission, private seams: HostSeams) {}
+
+  /** Checked at every use: a missing seam pauses children until the host provides it again. */
+  private requireSeams(): void {
+    const { missing } = this.seams.check('model-lock')
+    if (missing.length) throw new RouteBlocked('HOST_SEAMS_MISSING', lockPausedMessage(missing))
+  }
 
   /** Call after installing guards. Errors are contained so guards stay mounted. */
   initialize(): Promise<void> {
@@ -80,10 +87,11 @@ export class RouteEnforcer {
   }
   async delegate<T>(providerName: string, parent: RoutingAgent, requested: AgentOptions | undefined,
     run: (options: AgentOptions) => Promise<T>): Promise<T> {
+    this.requireSeams()
     const active = this.creation.getStore()
     const decision = active?.parentId === parent.id ? { selection: { ...active.selection }, source: active.source } : await this.resolve(parent)
-    const runtime = this.ctx.subagents as unknown as { getProvider?(name: string): { prepareContinuable?: unknown } | undefined }
-    const provider = runtime.getProvider?.(providerName)
+    const runtime = this.ctx.get('subagents') as { getProvider?(name: string): { prepareContinuable?: unknown } | undefined } | undefined
+    const provider = runtime?.getProvider?.(providerName)
     if (!provider || typeof provider.prepareContinuable !== 'function') throw new RouteBlocked('UNVERIFIABLE_BACKEND', 'This delegation backend cannot guarantee the selected child model')
     const supplied = delegationSelection.getStore()
     const candidate = supplied?.parent === parent ? supplied : requested
@@ -96,7 +104,7 @@ export class RouteEnforcer {
     if (agent.session.header.origin !== 'subagent') return
     await this.ready()
     const existing = this.locks.get(agent.id)
-    if (existing) { this.requireLock(agent); return }
+    if (existing) { this.align(agent, this.requireLock(agent).selection); return }
     const pending = this.creation.getStore()
     if (!pending || pending.parentId !== agent.session.header.parentSession) {
       this.blocked.set(agent.id, 'Confirm the model for this historical subagent before continuing')
@@ -113,6 +121,7 @@ export class RouteEnforcer {
   }
   async request(agent: RoutingAgent, seed: LlmCallConfig): Promise<LlmCallConfig> {
     await this.ready()
+    this.requireSeams()
     const lock = this.requireLock(agent)
     const route = await this.admit(lock.selection)
     if (!sameSelection(route, lock.selection)) throw new RouteBlocked('LOCKED_MODEL_CHANGED', 'The provider changed the locked model or reasoning effort')
@@ -132,6 +141,7 @@ export class RouteEnforcer {
     const child = header?.origin === 'subagent' || lock !== undefined
     if (!child) return
     await this.ready()
+    this.requireSeams()
     if (!lock || (header && lock.parentId !== header.parentSession)) throw new RouteBlocked('MODEL_CONFIRMATION_REQUIRED', 'A verified child model lock is required before dispatch')
     // Only the native, currently open compaction transaction may omit effort.
     // A public purpose string alone never relaxes the lock, nor does a loop
@@ -183,13 +193,29 @@ export class RouteEnforcer {
     if (this.locks.get(childId)) throw new RouteBlocked('ALREADY_LOCKED', 'This child already has a locked model')
     const lock: RouteLock = { childId, parentId, selection: await this.admit(selection), source: 'user-confirmed', policyVersion: 1, revision: randomUUID() }
     await this.locks.set(lock); this.blocked.delete(childId)
+    const live = this.agent(childId)
+    if (live) this.align(live, lock.selection)
     return lock
+  }
+  /**
+   * Optional seam `agent.model.select`: hosts that fix a step's route from the
+   * recorded selection before `agent/request` (DSH 0.2.2) reject a different
+   * route there, so record the lock first. Without the method the request
+   * guard rewrites the route; either way a mismatch is never dispatched.
+   */
+  private align(agent: RoutingAgent, selection: ModelSelectionConfig): void {
+    const model = (agent as { model?: { select?(selection: ModelSelectionConfig): void } }).model
+    if (typeof model?.select === 'function') model.select({ ...selection })
   }
   async status(id: string): Promise<RouteStatus> {
     await this.initialize()
     const value: RouteStatus = { pluginVersion: PLUGIN_VERSION, policyVersion: ROUTE_POLICY_VERSION, health: this.state, state: this.state === 'ready' ? 'ready' : 'blocked', sessionId: id }
+    const seams = this.seams.report()
+    if (seams.length) value.seams = seams
+    const paused = seams.find(report => report.capability === 'model-lock' && report.missing.length)
     try {
       await this.ready()
+      if (paused) throw new RouteBlocked('HOST_SEAMS_MISSING', lockPausedMessage(paused.missing))
       const header = await this.header(id)
       if (!header) {
         value.state = 'missing'; value.error = 'Session does not exist or is unavailable'
@@ -231,8 +257,13 @@ export class RouteEnforcer {
   }
   installGuards(): void {
     this.ctx.on('session/event', (session, event): undefined => {
-      if (event.type === 'compaction/start') this.compactions.set(session, event.data.compactionId)
-      else if (event.type === 'compaction/end' && this.compactions.get(session) === event.data.compactionId) this.compactions.delete(session)
+      if (event.type !== 'compaction/start' && event.type !== 'compaction/end') return
+      // Without a readable id no compaction is open, so missing effort stays rejected.
+      const id = (event.data as { compactionId?: unknown } | undefined)?.compactionId
+      if (event.type === 'compaction/start') {
+        this.seams.observe('model-lock', COMPACTION_ID_SEAM, typeof id === 'string')
+        if (typeof id === 'string') this.compactions.set(session, id)
+      } else if (typeof id === 'string' && this.compactions.get(session) === id) this.compactions.delete(session)
     }, { global: true })
     this.ctx.on('agent/created', async ({ agent }) => { await this.created(agent as unknown as RoutingAgent) })
     this.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {

@@ -4,6 +4,7 @@ import type { AgentOptions } from '@deepseek-ai/dsh-agent';
 import { type Config, type ModelSelectionConfig } from './shared.ts';
 import { type LockStore } from './route-locks.ts';
 import { type RouteLock, type RouteSource, type RouteStatus } from './route-contract.ts';
+import { type HostSeams } from './host-seams.ts';
 export declare class RouteBlocked extends Error {
     readonly code: string;
     constructor(code: string, message: string);
@@ -36,6 +37,7 @@ export declare class RouteEnforcer {
     private overrides;
     readonly locks: LockStore;
     private admit;
+    private seams;
     private state;
     private failure?;
     private initialization?;
@@ -46,7 +48,9 @@ export declare class RouteEnforcer {
     private attached;
     private requestGuards;
     private conflicts;
-    constructor(ctx: Context, current: () => Config, overrides: Overrides, locks: LockStore, admit: RouteAdmission);
+    constructor(ctx: Context, current: () => Config, overrides: Overrides, locks: LockStore, admit: RouteAdmission, seams: HostSeams);
+    /** Checked at every use: a missing seam pauses children until the host provides it again. */
+    private requireSeams;
     /** Call after installing guards. Errors are contained so guards stay mounted. */
     initialize(): Promise<void>;
     fail(cause: unknown): void;
@@ -69,6 +73,13 @@ export declare class RouteEnforcer {
     private agent;
     header(id: string): Promise<RoutingAgent['session']['header'] | undefined>;
     confirm(parentId: string, childId: string, selection: ModelSelectionConfig): Promise<RouteLock>;
+    /**
+     * Optional seam `agent.model.select`: hosts that fix a step's route from the
+     * recorded selection before `agent/request` (DSH 0.2.2) reject a different
+     * route there, so record the lock first. Without the method the request
+     * guard rewrites the route; either way a mismatch is never dispatched.
+     */
+    private align;
     status(id: string): Promise<RouteStatus>;
     private attachRequestGuard;
     installGuards(): void;

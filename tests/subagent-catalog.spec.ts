@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { installSubagentCatalog, assertCatalogRoute } from '../src/subagent-catalog.ts'
-import { authorityFor } from './route-fixture.ts'
+import { authorityFor, hostServices } from './route-fixture.ts'
 import { installSubagentRouting } from '../src/subagent-routing.ts'
 
 const step = { provider: 'step', model: 'step-5-preview' }
@@ -41,10 +41,11 @@ function setup() {
   let assemble!: (a: unknown, context: unknown, next: () => Promise<unknown>) => Promise<unknown>
   const disposers: (() => void)[] = []
   const scope = { tools: { get: (name: string) => name === 'subagent' ? definition : discovery },
-    get: (name: string) => name === 'llm' ? llm : undefined,
+    get: hostServices({ llm, subagents: runtime }),
+    inject(_deps: unknown, apply: (ctx: unknown) => void) { apply(scope) },
     on(_name: string, hook: typeof assemble) { assemble = hook },
     effect(install: () => () => void) { disposers.push(install()) },
-    logger: { warn() {} }, subagents: runtime,
+    logger: { warn() {}, info() {} }, subagents: runtime,
   }
   let selected: typeof step | typeof droid = droid
   const picks = new Map<string, typeof step | typeof droid>()
@@ -125,5 +126,15 @@ describe('live catalog child authorization', () => {
     await h.assemble(); expect(h.definition.execute).toBe(wrapped)
     h.dispose(); expect(h.definition.execute).toBe(h.originals[0]); expect(h.discovery.execute).toBe(h.originals[1])
     expect(h.runtime.start).toBe(h.start)
+  })
+})
+describe('tool adaptation without the tools.get seam', () => {
+  it('lets every request assemble when the host tools service has no get method', async () => {
+    let assemble!: (a: unknown, context: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    const scope = { tools: { schemas: () => [{ name: 'subagent' }] }, get: hostServices({}),
+      on(_name: string, hook: typeof assemble) { assemble = hook }, effect() {}, logger: { warn() {}, info() {} } }
+    const authority = authorityFor(scope, () => ({}), () => undefined, async route => route)
+    installSubagentCatalog({ inject(_deps: unknown, apply: (ctx: unknown) => void) { apply(scope) } } as never, authority)
+    await expect(assemble({}, { agent: { id: 'main' } }, async () => 'assembled')).resolves.toBe('assembled')
   })
 })
