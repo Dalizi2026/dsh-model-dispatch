@@ -94,6 +94,7 @@ describe('shortcut rows', () => {
       { effort: 'retired', name: 'retired', stale: true },
     ])
     expect(rows[1]!.chips).toEqual([])
+    expect([rows[0]!.modelFavorite, rows[1]!.modelFavorite]).toEqual([undefined, true])
     expect(modelPreferences.getSnapshot().favorites).toHaveLength(6)
   })
 

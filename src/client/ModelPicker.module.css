@@ -36,8 +36,24 @@
 .effort:disabled { opacity: .6; cursor: default; }
 .effort[aria-pressed="true"] { border-color: var(--dsw-alias-state-business-primary, #5269dc); color: var(--dsw-alias-state-business-primary, #5269dc); background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5269dc) 9%, transparent); }
 .effort[data-stale="true"] { color: var(--dsw-alias-label-tertiary, #777784); text-decoration: line-through; opacity: .55; }
-.rowChips { flex: none; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 2px; }
+.rowChips { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 2px; }
 .rowChip { height: 24px; padding: 0 7px; }
+/* Favorites: a star badge rides the chip's corner on hover/focus, like the close badge on a macOS notification. */
+.chipWrap { position: relative; display: inline-flex; }
+.chipStar, .rowStar { padding: 0; border: 0; outline: none; color: var(--dsw-alias-state-business-primary, #5269dc); cursor: pointer; line-height: 1; transition: opacity 120ms ease-out, transform 120ms ease-out; }
+.chipStar { position: absolute; top: -7px; right: -6px; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--dsw-alias-bg-layer-1, #fff); box-shadow: 0 0 0 1px var(--dsw-alias-border-l2, #dedee3), 0 1px 3px #0002; font-size: 9px; opacity: 0; pointer-events: none; transform: scale(.85); }
+.rowStar { flex: none; width: 28px; height: 28px; margin-right: 4px; border-radius: 7px; background: transparent; font-size: 15px; opacity: 0; pointer-events: none; }
+.chipWrap:hover .chipStar, .chipWrap:focus-within .chipStar, .chipWrap[data-ghost="true"] .chipStar,
+.modelRow:hover .rowStar, .modelRow:focus-within .rowStar, .modelRow[data-ghost="true"] .rowStar { opacity: 1; pointer-events: auto; transform: none; }
+.chipStar:hover:not(:disabled), .rowStar:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
+.chipStar:active:not(:disabled), .rowStar:active:not(:disabled) { transform: scale(.9); }
+.chipStar:disabled, .rowStar:disabled { color: var(--dsw-alias-label-tertiary, #888894); cursor: default; }
+/* Removed in this menu: hollow until the menu closes, so the list never shifts and one tap restores it. */
+.chipWrap[data-ghost="true"] .effort { border-style: dashed; color: var(--dsw-alias-label-tertiary, #777784); background: transparent; }
+.chipWrap[data-ghost="true"] .chipStar, .modelRow[data-ghost="true"] .rowStar { color: var(--dsw-alias-label-tertiary, #888894); }
+@media (hover: none) {
+  .chipStar, .rowStar { opacity: 1; pointer-events: auto; transform: none; }
+}
 .clear { display: flex; align-items: center; justify-content: space-between; flex: none; width: 100%; padding: 9px 8px; margin-top: 5px; border: 0; border-top: 1px solid var(--dsw-alias-border-l2, #dedee3); background: transparent; color: var(--dsw-alias-label-secondary, #555560); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 .scopeHint { flex: none; padding: 8px 4px 3px; color: var(--dsw-alias-label-tertiary, #777784); font-size: 10px; line-height: 15px; border-top: 1px solid var(--dsw-alias-border-l2, #dedee3); }
 .status, .empty, .muted { padding: 14px 7px; color: var(--dsw-alias-label-tertiary, #777784); font-size: 12px; }
@@ -78,5 +94,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .effort, .favoriteToggle { transition: none; }
-  .effort:active:not(:disabled), .favoriteToggle:active:not(:disabled) { transform: none; }
+  .chipStar, .rowStar { transition: opacity 120ms ease-out; transform: none; }
+  .effort:active:not(:disabled), .favoriteToggle:active:not(:disabled), .chipStar:active:not(:disabled), .rowStar:active:not(:disabled) { transform: none; }
 }

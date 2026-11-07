@@ -40,6 +40,8 @@ export interface ShortcutChip {
 export interface ShortcutRow<T> {
     readonly choice: T;
     readonly chips: readonly ShortcutChip[];
+    /** Favorited with the provider default on a model that offers no efforts, so no chip can carry its star. */
+    readonly modelFavorite?: boolean;
 }
 export declare const MAX_FAVORITES = 40;
 export declare const modelKey: (value: Pick<ModelSelectionConfig, "provider" | "model">) => string;
@@ -53,7 +55,8 @@ export declare const modelPreferences: {
     /** Records an applied selection: it becomes the newest recent and this model's last effort. */
     remember(value: ModelSelectionConfig): void;
 };
-export declare function isFavorite(preferences: ModelPreferences, value: ModelSelectionConfig): boolean;
+export declare function hasFavorite(preferences: ModelPreferences, provider: string, model: string, effort: Effort): boolean;
+export declare const isFavorite: (preferences: ModelPreferences, value: ModelSelectionConfig) => boolean;
 /**
  * Effort for a model picked by name: the effort last applied with it when the
  * model still supports it, otherwise the adapter default. Undefined means the

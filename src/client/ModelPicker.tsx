@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import type { ModelCatalog, ModelSelection, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { IconCheckOutlineMedium, IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelSelectionConfig } from '../shared.ts'
-import { effortOf, favoriteRows, isFavorite, MAX_FAVORITES, modelKey, modelPreferences, recentRows, startingEffort, type ShortcutChip, type ShortcutRow } from './model-preferences.ts'
+import { effortOf, favoriteRows, hasFavorite, isFavorite, MAX_FAVORITES, modelKey, modelPreferences, recentRows, startingEffort, type Effort, type FavoriteChoice, type ModelPreferences, type ShortcutChip, type ShortcutRow } from './model-preferences.ts'
 import type { LocaleKey } from './locales.ts'
 import css from './ModelPicker.module.css'
 
@@ -54,6 +54,8 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const [inherit, setInherit] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  // Favorites removed while this menu is open keep their place as hollow chips: one tap restores them.
+  const [ghosts, setGhosts] = useState<readonly FavoriteChoice[]>([])
   const savingRef = useRef(false)
   const [position, setPosition] = useState({ left: 0, top: 0, height: 480 })
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -62,6 +64,10 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const starRef = useRef<HTMLSpanElement>(null)
   const loadRevision = useRef(0)
   const preferences = useSyncExternalStore(modelPreferences.subscribe, modelPreferences.getSnapshot)
+  const shown = useMemo<ModelPreferences>(() => {
+    const kept = ghosts.filter(item => !hasFavorite(preferences, item.provider, item.model, item.effort))
+    return kept.length === 0 ? preferences : { ...preferences, favorites: [...preferences.favorites, ...kept] }
+  }, [preferences, ghosts])
   const id = useId()
   const blocked = disabled || saving
   const load = (): void => {
@@ -156,12 +162,18 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
     }
     setInherit(false)
   }
+  /** One star toggle for the editor, chip badges, and model-only rows; a removal leaves a restorable placeholder. */
+  const toggleChoice = (provider: string, model: string, effort: Effort, title: string, star: HTMLElement | null): void => {
+    const adding = !hasFavorite(preferences, provider, model, effort)
+    if (!modelPreferences.toggleFavorite(withEffort(provider, model, effort ?? undefined))) return
+    const same = (item: FavoriteChoice): boolean => item.provider === provider && item.model === model && item.effort === effort
+    setGhosts(current => adding ? current.filter(item => !same(item)) : [...current.filter(item => !same(item)), { provider, model, effort }])
+    setAnnouncement(t(adding ? 'favoriteAdded' : 'favoriteRemoved').replace('{name}', title))
+    if (adding) settle(star)
+  }
   const toggleFavorite = (): void => {
     if (draft === undefined || draftModel === undefined) return
-    const adding = !draftFavorite
-    if (!modelPreferences.toggleFavorite(draft)) return
-    setAnnouncement(t(adding ? 'favoriteAdded' : 'favoriteRemoved').replace('{name}', draftTitle))
-    if (adding) settle(starRef.current)
+    toggleChoice(draft.provider, draft.model, effortOf(draft), draftTitle, starRef.current)
   }
   const apply = (): void => {
     if (inherit && onClear !== undefined) commit(onClear)
@@ -201,8 +213,8 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   const visible = choices.filter(row => `${row.name} ${row.model} ${row.providerName} ${row.provider}`.toLocaleLowerCase().includes(normalized))
   const plain = (rows: readonly Choice[]): ShortcutRow<Choice>[] => rows.map(choice => ({ choice, chips: [] }))
   const sections: { id: string; label: string; shortcut: boolean; rows: readonly ShortcutRow<Choice>[] }[] = normalized ? [{ id: 'search', label: t('searchResults'), shortcut: true, rows: plain(visible) }] : [
-    { id: 'favorites', label: t('favorites'), shortcut: true, rows: favoriteRows(preferences, choices, t('effortDefaultShort')) },
-    { id: 'recent', label: t('recentModels'), shortcut: true, rows: recentRows(preferences, choices, t('effortDefaultShort')) },
+    { id: 'favorites', label: t('favorites'), shortcut: true, rows: favoriteRows(shown, choices, t('effortDefaultShort')) },
+    { id: 'recent', label: t('recentModels'), shortcut: true, rows: recentRows(shown, choices, t('effortDefaultShort')) },
     ...(catalog?.groups.map(group => ({ id: `provider:${group.id}`, label: group.name, shortcut: false, rows: plain(choices.filter(row => row.provider === group.id)) })) ?? []),
   ]
   const draftEffort = draft === undefined ? undefined : effortOf(draft)
@@ -210,7 +222,7 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
   return (
     <div className={[css.root, compact ? css.compact : undefined, stretch ? css.stretch : undefined, className].filter(Boolean).join(' ')}>
       <button ref={triggerRef} type="button" className={css.trigger} aria-label={fullLabel} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} title={fullLabel} disabled={blocked} onClick={() => {
-        if (open) close(); else { setQuery(''); setDraft(value === undefined ? undefined : { ...value }); setInherit(false); setError(null); setNotice(null); setAnnouncement(''); setOpen(true); load() }
+        if (open) close(); else { setQuery(''); setDraft(value === undefined ? undefined : { ...value }); setInherit(false); setError(null); setNotice(null); setAnnouncement(''); setGhosts([]); setOpen(true); load() }
       }}>
         {roleLabel && <span className={css.role}>{roleLabel}</span>}
         <span className={css.triggerLabel}>{modelLabel}</span>
@@ -231,17 +243,39 @@ export function ModelPicker({ sessionId, access, value, onChange, t, disabled, c
             {loading && !catalog && <div className={css.status}>{t('statusLoading')}</div>}
             {sections.filter(section => section.rows.length).map(section => <section className={css.group} key={section.id} aria-label={section.label}>
               <h4 className={css.groupTitle}>{section.label}</h4>
-              {section.rows.map(({ choice: row, chips }) => {
+              {section.rows.map(({ choice: row, chips, modelFavorite }) => {
                 const current = !inherit && row.provider === draft?.provider && row.model === draft.model
-                return <div className={css.modelRow} key={modelKey(row)} data-model-row>
-                  <button type="button" data-model-option className={[css.option, current ? css.selected : ''].filter(Boolean).join(' ')} aria-pressed={current} disabled={blocked} title={`${row.name} · ${row.providerName}`} onClick={() => { pick(row) }}>
+                const favorites = section.id === 'favorites'
+                /** The badge star for one saved combination: filled while saved, hollow once removed in this menu. */
+                const star = (effort: Effort, title: string, className: string | undefined) => {
+                  const saved = hasFavorite(preferences, row.provider, row.model, effort)
+                  const label = t(saved ? 'unfavoriteChoice' : 'favoriteChoice').replace('{name}', title)
+                  const full = !saved && preferences.favorites.length >= MAX_FAVORITES
+                  return <button type="button" tabIndex={-1} data-favorite-star className={className} aria-pressed={saved} aria-label={label} title={full ? t('favoritesFull') : label} disabled={full} onClick={event => { toggleChoice(row.provider, row.model, effort, title, event.currentTarget.firstElementChild as HTMLElement | null) }}>
+                    <span className={css.star} aria-hidden="true">{saved ? '★' : '☆'}</span>
+                  </button>
+                }
+                // Delete or Backspace on a focused favorite toggles it, as in a macOS token field.
+                const removeKey = (effort: Effort, title: string) => (event: KeyboardEvent<HTMLButtonElement>): void => {
+                  if (!favorites || (event.key !== 'Delete' && event.key !== 'Backspace')) return
+                  event.preventDefault()
+                  toggleChoice(row.provider, row.model, effort, title, null)
+                }
+                const modelGhost = modelFavorite === true && !hasFavorite(preferences, row.provider, row.model, null)
+                return <div className={css.modelRow} key={modelKey(row)} data-model-row data-ghost={favorites && modelGhost ? 'true' : undefined}>
+                  <button type="button" data-model-option className={[css.option, current ? css.selected : ''].filter(Boolean).join(' ')} aria-pressed={current} disabled={blocked} title={`${row.name} · ${row.providerName}`} onClick={() => { pick(row) }} onKeyDown={favorites && modelFavorite ? removeKey(null, row.name) : undefined}>
                     <span className={css.optionCopy}><span className={css.modelName}>{row.name}</span><span className={css.description}>{section.shortcut ? `${row.providerName} · ` : ''}{row.description ?? row.model}</span></span>
                     {current && <IconCheckOutlineMedium className={css.check} />}
                   </button>
+                  {favorites && modelFavorite && star(null, row.name, css.rowStar)}
                   {chips.length > 0 && <div className={css.rowChips}>
                     {chips.map(chip => {
                       const label = `${row.name} · ${chip.name}`
-                      return <button key={chip.effort ?? '\u0000default'} type="button" data-effort-chip data-stale={chip.stale ? 'true' : undefined} className={[css.effort, css.rowChip].join(' ')} aria-pressed={current && !chip.stale && draftEffort === chip.effort} aria-label={chip.stale ? `${label} · ${t('staleEffortChip')}` : label} title={chip.stale ? t('staleEffortChip') : label} disabled={blocked} onClick={() => { pickChip(row, chip) }}>{chip.name}</button>
+                      const ghost = favorites && !hasFavorite(preferences, row.provider, row.model, chip.effort)
+                      return <span key={chip.effort ?? '\u0000default'} className={css.chipWrap} data-ghost={ghost ? 'true' : undefined}>
+                        <button type="button" data-effort-chip data-stale={chip.stale ? 'true' : undefined} className={[css.effort, css.rowChip].join(' ')} aria-pressed={current && !chip.stale && draftEffort === chip.effort} aria-label={chip.stale ? `${label} · ${t('staleEffortChip')}` : label} aria-keyshortcuts={favorites ? 'Delete' : undefined} title={chip.stale ? t('staleEffortChip') : label} disabled={blocked} onClick={() => { pickChip(row, chip) }} onKeyDown={removeKey(chip.effort, label)}>{chip.name}</button>
+                        {favorites && star(chip.effort, label, css.chipStar)}
+                      </span>
                     })}
                   </div>}
                 </div>

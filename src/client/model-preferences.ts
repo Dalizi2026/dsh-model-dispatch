@@ -20,7 +20,12 @@ export interface PickerChoice {
 }
 /** One effort shortcut inside a favorites or recents row. */
 export interface ShortcutChip { readonly effort: Effort; readonly name: string; readonly stale: boolean }
-export interface ShortcutRow<T> { readonly choice: T; readonly chips: readonly ShortcutChip[] }
+export interface ShortcutRow<T> {
+  readonly choice: T
+  readonly chips: readonly ShortcutChip[]
+  /** Favorited with the provider default on a model that offers no efforts, so no chip can carry its star. */
+  readonly modelFavorite?: boolean
+}
 
 const KEY = 'dsh-model-switch/picker-v2'
 /** Read only to migrate; never written, so an older plugin keeps its own shortcuts. */
@@ -138,10 +143,10 @@ export const modelPreferences = {
   },
 }
 
-export function isFavorite(preferences: ModelPreferences, value: ModelSelectionConfig): boolean {
-  const key = choiceKey(value.provider, value.model, effortOf(value))
-  return preferences.favorites.some(item => choiceKey(item.provider, item.model, item.effort) === key)
+export function hasFavorite(preferences: ModelPreferences, provider: string, model: string, effort: Effort): boolean {
+  return preferences.favorites.some(item => item.provider === provider && item.model === model && item.effort === effort)
 }
+export const isFavorite = (preferences: ModelPreferences, value: ModelSelectionConfig): boolean => hasFavorite(preferences, value.provider, value.model, effortOf(value))
 /**
  * Effort for a model picked by name: the effort last applied with it when the
  * model still supports it, otherwise the adapter default. Undefined means the
@@ -168,13 +173,15 @@ function chips(choice: PickerChoice, efforts: readonly Effort[], defaultName: st
 export function favoriteRows<T extends PickerChoice>(preferences: ModelPreferences, choices: readonly T[], defaultName: string): ShortcutRow<T>[] {
   return choices.flatMap(choice => {
     const saved = preferences.favorites.filter(item => sameModel(item, choice))
-    return saved.length === 0 ? [] : [{ choice, chips: chips(choice, saved.map(item => item.effort), defaultName) }]
+    if (saved.length === 0) return []
+    const modelFavorite = (choice.reasoning?.efforts.length ?? 0) === 0 && saved.some(item => item.effort === null)
+    return [{ choice, chips: chips(choice, saved.map(item => item.effort), defaultName), ...modelFavorite ? { modelFavorite } : {} }]
   })
 }
 /** The last applied models with their efforts, skipping combinations already in favorites. */
 export function recentRows<T extends PickerChoice>(preferences: ModelPreferences, choices: readonly T[], defaultName: string): ShortcutRow<T>[] {
   return preferences.history.slice(0, RECENT_LIMIT).flatMap(entry => {
-    if (entry.effort !== undefined && isFavorite(preferences, { provider: entry.provider, model: entry.model, ...entry.effort === null ? {} : { reasoningEffort: entry.effort } })) return []
+    if (entry.effort !== undefined && hasFavorite(preferences, entry.provider, entry.model, entry.effort)) return []
     const choice = choices.find(item => sameModel(item, entry))
     if (choice === undefined) return []
     return [{ choice, chips: entry.effort === undefined ? [] : chips(choice, [entry.effort], defaultName).filter(chip => !chip.stale) }]
