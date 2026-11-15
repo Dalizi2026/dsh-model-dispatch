@@ -121,6 +121,7 @@
 
 | 版本 | 主要变化 |
 |---|---|
+| 1.3.1 | 修复 DSH 0.2.2 上点开会话头部的子代理目录却看不见的问题。[说明](docs/releases/1.3.1-subagent-catalog-clipping-fix.md) |
 | 1.3.0 | 不再按 DSH 版本号限制安装；DSH 少了某个接口时，只停用受影响的功能并写明原因；适配 DSH 0.2.2；收藏可以带思考强度。[说明](docs/releases/1.3.0-host-seams.md) |
 | 1.2.3 | 对齐 DSH Desktop 0.2.1-rc.5。[说明](docs/releases/1.2.3-compatibility.md) |
 | 1.2.2 | 完善子代理压缩请求的检查、路由状态显示和计划结束后的主模型恢复。[说明](docs/releases/1.2.2-fixes.md) |

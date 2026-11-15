@@ -121,6 +121,7 @@ It installs on any version; which functions run depends on the interfaces that D
 
 | Version | Main changes |
 |---|---|
+| 1.3.1 | Fixes the session-header subagent catalog opening invisibly on DSH 0.2.2. [Notes](docs/releases/1.3.1-subagent-catalog-clipping-fix.md) |
 | 1.3.0 | No DSH version gate; when DSH lacks an interface, only the affected function is switched off, with the reason shown; adapts to DSH 0.2.2; favorites keep the reasoning effort. [Notes](docs/releases/1.3.0-host-seams.md) |
 | 1.2.3 | Aligned with DSH Desktop 0.2.1-rc.5. [Notes](docs/releases/1.2.3-compatibility.md) |
 | 1.2.2 | Refines the checks on subagent compaction requests, the route status display, and restoring the main model after planning. [Notes](docs/releases/1.2.2-fixes.md) |

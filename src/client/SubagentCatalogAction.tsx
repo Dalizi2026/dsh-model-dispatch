@@ -13,6 +13,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createPortal } from 'react-dom'
 import type { SessionLabelStore } from './session-label-store.ts'
 import css from './SubagentCatalogAction.module.css'
 
@@ -89,6 +90,24 @@ interface CatalogRowsProps {
   toggleBranch: (childSessionId: SessionId) => void
   closeCatalog: () => void
   modelLabels: Readonly<Record<string, string>>
+}
+
+const MENU_VIEWPORT_MARGIN = 16
+const MENU_WIDTH = 336
+
+/** Keep the fixed catalog below its trigger and inside the horizontal viewport. */
+export function catalogMenuPosition(
+  rect: Pick<DOMRect, 'left' | 'bottom'>,
+  viewportWidth: number,
+) {
+  const width = Math.min(MENU_WIDTH, viewportWidth - MENU_VIEWPORT_MARGIN * 2)
+  return {
+    top: rect.bottom + 5,
+    left: Math.min(
+      Math.max(MENU_VIEWPORT_MARGIN, rect.left),
+      viewportWidth - width - MENU_VIEWPORT_MARGIN,
+    ),
+  }
 }
 
 function treeItems(root: HTMLDivElement | null): HTMLElement[] {
@@ -445,9 +464,11 @@ function SubagentCatalogActionLoaded({
 
   const catalog = catalogs[sessionId]
   const [open, setOpen] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<ReturnType<typeof catalogMenuPosition> | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
   const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const descendants = useMemo(
     () => indexSubagentDescendants(summaries).get(sessionId) ?? NO_DESCENDANTS,
@@ -465,9 +486,16 @@ function SubagentCatalogActionLoaded({
   }
 
   const changeOpen = (next: boolean, restoreFocus = false): void => {
+    if (next) {
+      const trigger = triggerRef.current
+      if (trigger === null) return
+      setMenuPosition(catalogMenuPosition(trigger.getBoundingClientRect(), window.innerWidth))
+      setNow(Date.now())
+    } else {
+      setMenuPosition(null)
+      closeAllCatalogs()
+    }
     setOpen(next)
-    if (next) setNow(Date.now())
-    else closeAllCatalogs()
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
 
@@ -493,12 +521,29 @@ function SubagentCatalogActionLoaded({
   useEffect(() => {
     if (!open) return
     const closeOutside = (event: PointerEvent): void => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+      if (event.target instanceof Node
+        && !rootRef.current?.contains(event.target)
+        && !menuRef.current?.contains(event.target)) {
         changeOpen(false)
       }
     }
     document.addEventListener('pointerdown', closeOutside)
     return () => { document.removeEventListener('pointerdown', closeOutside) }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const place = (): void => {
+      const trigger = triggerRef.current
+      if (trigger === null) return
+      setMenuPosition(catalogMenuPosition(trigger.getBoundingClientRect(), window.innerWidth))
+    }
+    window.addEventListener('resize', place)
+    document.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      document.removeEventListener('scroll', place, true)
+    }
   }, [open])
 
   useEffect(() => {
@@ -516,19 +561,20 @@ function SubagentCatalogActionLoaded({
   useEffect(() => {
     if (visible || !open) return
     setOpen(false)
+    setMenuPosition(null)
     closeAllCatalogs()
   }, [visible, open])
 
   if (!visible) return null
 
   const focusAt = (index: number): void => {
-    const items = treeItems(rootRef.current)
+    const items = treeItems(menuRef.current)
     if (items.length === 0) return
     items[(index + items.length) % items.length]?.focus()
   }
 
   const navigate = (event: KeyboardEvent<HTMLDivElement>): void => {
-    const items = treeItems(rootRef.current)
+    const items = treeItems(menuRef.current)
     const index = items.indexOf(document.activeElement as HTMLElement)
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -574,8 +620,14 @@ function SubagentCatalogActionLoaded({
         <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
         <IconChevronDownOutlineMedium className={open ? css.triggerOpen : undefined} />
       </button>
-      {open && (
-        <div className={css.menu} role="tree" aria-label={t('tree.aria')}>
+      {open && menuPosition !== null && createPortal(
+        <div
+          ref={menuRef}
+          className={css.menu}
+          style={menuPosition}
+          role="tree"
+          aria-label={t('tree.aria')}
+        >
           <CatalogRows
             parentSessionId={sessionId}
             catalog={catalog}
@@ -591,7 +643,8 @@ function SubagentCatalogActionLoaded({
             modelLabels={modelLabels}
             t={t}
           />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
