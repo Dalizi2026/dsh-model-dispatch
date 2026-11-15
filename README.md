@@ -102,6 +102,9 @@ The DSH you are running lacks an interface the plugin needs, usually after a DSH
 **A subagent header says "Model confirmation required; requests paused"?**
 This is an older subagent with no lock record, typically one created before upgrading to 1.2.0. Open it, expand the notice in its header, pick a model and effort, and click **Apply**. It continues with its original context.
 
+**Every subagent fails at once with `Cannot read properties of undefined (reading 'parent')`?**
+That is 1.3.0 on DSH 0.2.2-rc.3: the host changed the shape of the arguments it passes when starting a subagent. Upgrade to 1.3.1.
+
 **The main agent named another model in its tool call. Why was it ignored?**
 By design: you decide which model a subagent uses, not the model. The interface shows "Conflicting tool or preset selection ignored".
 
@@ -121,7 +124,7 @@ It installs on any version; which functions run depends on the interfaces that D
 
 | Version | Main changes |
 |---|---|
-| 1.3.1 | Fixes the session-header subagent catalog opening invisibly on DSH 0.2.2. [Notes](docs/releases/1.3.1-subagent-catalog-clipping-fix.md) |
+| 1.3.1 | Fixes subagents failing to start on DSH 0.2.2-rc.3, and the session-header subagent catalog opening invisibly on DSH 0.2.2. [Notes](docs/releases/1.3.1-dsh-0.2.2-fixes.md) |
 | 1.3.0 | No DSH version gate; when DSH lacks an interface, only the affected function is switched off, with the reason shown; adapts to DSH 0.2.2; favorites keep the reasoning effort. [Notes](docs/releases/1.3.0-host-seams.md) |
 | 1.2.3 | Aligned with DSH Desktop 0.2.1-rc.5. [Notes](docs/releases/1.2.3-compatibility.md) |
 | 1.2.2 | Refines the checks on subagent compaction requests, the route status display, and restoring the main model after planning. [Notes](docs/releases/1.2.2-fixes.md) |

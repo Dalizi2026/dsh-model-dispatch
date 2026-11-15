@@ -1,7 +1,7 @@
 /**
  * Host seams each capability depends on, checked when the capability is used
  * or when someone asks. Nothing is polled or cached: only the last logged
- * result per capability and observed event-shape mismatches stay in memory.
+ * result per capability and observed data-shape mismatches stay in memory.
  * A service method a capability cannot run safely without belongs in
  * REQUIREMENTS; optional seams are checked at their call site instead.
  */
@@ -11,6 +11,12 @@ import type { CapabilityId, CapabilityReport } from './route-contract.ts'
 /** Event data observed at runtime; a mismatch keeps the capability on its conservative path. */
 export const COMPACTION_ID_SEAM = 'session/event compaction/start data.compactionId'
 export const PLAN_APPROVED_SEAM = 'tools/result exit_plan_mode value.approved'
+/**
+ * The parent agent in a native start request, whichever entry received it. No
+ * child can be routed without it, so a request that carries none is stopped
+ * and reported as a missing seam until a readable one arrives.
+ */
+export const START_PARENT_SEAM = 'subagents start request.parent'
 
 /** `service.method` requirements; one is met when any of its alternatives exists. */
 const REQUIREMENTS: Record<CapabilityId, readonly (readonly string[])[]> = {
@@ -44,14 +50,18 @@ export function lockPausedMessage(missing: readonly string[]): string {
 }
 
 export class HostSeams {
-  private mismatches = new Map<string, CapabilityId>()
+  private mismatches = new Map<string, { capability: CapabilityId; pauses: boolean }>()
   private logged = new Map<CapabilityId, string>()
   constructor(private ctx: Context) {}
 
   /** Check one capability against the live host now. */
   check(capability: CapabilityId): CapabilityReport {
-    const missing = REQUIREMENTS[capability].filter(options => !options.some(seam => this.has(seam))).flat()
-    const mismatched = [...this.mismatches].filter(([, owner]) => owner === capability).map(([seam]) => seam)
+    const observed = [...this.mismatches].filter(([, miss]) => miss.capability === capability)
+    const missing = [
+      ...REQUIREMENTS[capability].filter(options => !options.some(seam => this.has(seam))).flat(),
+      ...observed.filter(([, miss]) => miss.pauses).map(([seam]) => seam),
+    ]
+    const mismatched = observed.filter(([, miss]) => !miss.pauses).map(([seam]) => seam)
     const report: CapabilityReport = { capability, missing, mismatched }
     this.log(report)
     return report
@@ -62,12 +72,16 @@ export class HostSeams {
     return CAPABILITIES.map(capability => this.check(capability)).filter(degraded)
   }
 
-  /** Record whether the latest event carried the data shape a capability relies on. */
-  observe(capability: CapabilityId, seam: string, matched: boolean): void {
+  /**
+   * Record whether the latest event or call carried the data shape a capability
+   * relies on. `pauses` marks data the capability cannot work without: its
+   * mismatch is reported as a missing seam, not as a conservative fallback.
+   */
+  observe(capability: CapabilityId, seam: string, matched: boolean, pauses = false): void {
     // Only a change is recorded and logged: matched with no mismatch, or a repeated mismatch, is a no-op.
     if (matched !== this.mismatches.has(seam)) return
     if (matched) this.mismatches.delete(seam)
-    else this.mismatches.set(seam, capability)
+    else this.mismatches.set(seam, { capability, pauses })
     this.check(capability)
   }
 

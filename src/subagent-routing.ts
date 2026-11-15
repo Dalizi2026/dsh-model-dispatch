@@ -4,16 +4,26 @@ import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type { RouteEnforcer, RoutingAgent } from './route-enforcer.ts'
 interface ChildRequest { parent: RoutingAgent; agentOptions?: AgentOptions; [key: string]: unknown }
-interface ActivationSpec { provider: string; request: ChildRequest; [key: string]: unknown }
+/**
+ * Hosts up to 0.2.2-rc.1 nest the child request under `request`; later hosts
+ * put its fields on the spec itself. Both are read, and each is handed back in
+ * the shape it arrived in.
+ */
+interface ActivationSpec { provider: string; request?: unknown; [key: string]: unknown }
 interface Runtime {
   startActivation?: (spec: ActivationSpec) => Promise<unknown>
   startContinuable?: (spec: ActivationSpec) => Promise<unknown>
   start?: (name: string, request: ChildRequest) => Promise<unknown>
 }
+function isChildRequest(value: unknown): value is ChildRequest {
+  const parent = (value as { parent?: { id?: unknown } | null } | null | undefined)?.parent
+  return typeof parent === 'object' && parent !== null && typeof parent.id === 'string'
+}
 /**
  * Installs whenever the host provides `subagents`, so the plugin itself never
  * waits on it. Missing start entries are reported by the model-lock seam check,
- * which pauses delegation until the host provides them.
+ * which pauses delegation until the host provides them; so is a start request
+ * whose parent agent cannot be read.
  */
 export function installSubagentRouting(ctx: Context, authority: RouteEnforcer): void {
   ctx.inject(['subagents'], scope => {
@@ -23,15 +33,23 @@ export function installSubagentRouting(ctx: Context, authority: RouteEnforcer): 
       for (const key of ['startActivation', 'startContinuable'] as const) {
         const original = runtime[key]
         if (typeof original !== 'function') continue
-        const wrapped: typeof original = spec => authority.delegate(spec.provider, spec.request.parent, spec.request.agentOptions,
-          agentOptions => original.call(runtime, { ...spec, request: { ...spec.request, agentOptions } }))
+        const wrapped: typeof original = async spec => {
+          const nested = isChildRequest(spec?.request) ? spec.request : undefined
+          const request = nested ?? (isChildRequest(spec) ? spec : undefined)
+          authority.admitStart(request !== undefined)
+          return authority.delegate(spec.provider, request.parent, request.agentOptions, agentOptions =>
+            original.call(runtime, nested ? { ...spec, request: { ...nested, agentOptions } } : { ...spec, agentOptions }))
+        }
         runtime[key] = wrapped
         restore.push(() => { if (runtime[key] === wrapped) runtime[key] = original })
       }
       const original = runtime.start
       if (typeof original === 'function') {
-        const wrapped: typeof original = (name, request) => authority.delegate(name, request.parent, request.agentOptions,
-          agentOptions => original.call(runtime, name, { ...request, agentOptions }))
+        const wrapped: typeof original = async (name, request) => {
+          authority.admitStart(isChildRequest(request))
+          return authority.delegate(name, request.parent, request.agentOptions,
+            agentOptions => original.call(runtime, name, { ...request, agentOptions }))
+        }
         runtime.start = wrapped
         restore.push(() => { if (runtime.start === wrapped) runtime.start = original })
       }

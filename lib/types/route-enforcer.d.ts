@@ -51,6 +51,11 @@ export declare class RouteEnforcer {
     constructor(ctx: Context, current: () => Config, overrides: Overrides, locks: LockStore, admit: RouteAdmission, seams: HostSeams);
     /** Checked at every use: a missing seam pauses children until the host provides it again. */
     private requireSeams;
+    /**
+     * A native start request whose parent cannot be read stops that start and is
+     * reported as a missing seam until a readable request arrives.
+     */
+    admitStart(readable: boolean): asserts readable;
     /** Call after installing guards. Errors are contained so guards stay mounted. */
     initialize(): Promise<void>;
     fail(cause: unknown): void;

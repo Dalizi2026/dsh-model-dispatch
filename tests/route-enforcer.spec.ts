@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { RouteEnforcer, type RoutingAgent } from '../src/route-enforcer.ts'
-import { COMPACTION_ID_SEAM, HostSeams } from '../src/host-seams.ts'
+import { COMPACTION_ID_SEAM, START_PARENT_SEAM, HostSeams } from '../src/host-seams.ts'
 import { memoryLocks } from './route-fixture.ts'
 import type { Config, ModelSelectionConfig } from '../src/shared.ts'
 const glm = { provider: 'glm', model: 'flash', reasoningEffort: 'max' }
@@ -288,6 +288,17 @@ describe('model lock host seams', () => {
     await h.enforcer.verify({ sessionId: agent.id, ...glm })
     const status = await h.enforcer.status(agent.id)
     expect(status.state).toBe('locked'); expect(status.seams).toBeUndefined()
+  })
+  it('stops a start whose request names no parent without pausing children that already hold a lock', async () => {
+    const h = setup(); const { agent } = await h.start()
+    expect(() => h.enforcer.admitStart(false)).toThrow(/Subagent dispatch is paused.*subagents start request\.parent/)
+    await expect(h.enforcer.request(agent, opus as never)).resolves.toMatchObject({ provider: glm.provider, model: glm.model })
+    await expect(h.enforcer.verify({ sessionId: agent.id, ...glm })).resolves.toBeUndefined()
+    expect(await h.enforcer.status(agent.id)).toMatchObject({ state: 'locked', seams: [{ capability: 'model-lock', missing: [START_PARENT_SEAM], mismatched: [] }] })
+    expect(h.logger.warn).toHaveBeenCalledWith(expect.stringContaining(START_PARENT_SEAM))
+    h.enforcer.admitStart(true)
+    expect((await h.enforcer.status(agent.id)).seams).toBeUndefined()
+    expect((await h.start('next')).options).toEqual(glm)
   })
   it('keeps the compaction effort check strict on unexpected compaction data, reports it, and keeps delegating', async () => {
     const h = setup(); const { agent } = await h.start(); h.enforcer.installGuards()

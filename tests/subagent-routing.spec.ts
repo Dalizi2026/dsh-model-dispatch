@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { installSubagentRouting } from '../src/subagent-routing.ts'
+import { START_PARENT_SEAM } from '../src/host-seams.ts'
 import { modelRouteResolver } from '../src/model-route.ts'
 import { authorityFor, hostServices } from './route-fixture.ts'
 import type { Config, ModelSelectionConfig } from '../src/shared.ts'
@@ -63,6 +64,41 @@ describe('user authority at every native startup entry', () => {
     const h = setup(); const spec = { provider: 'standard', childId: 'reserved', delivery: 'caller', label: 'test', request: { parent, outputSchema: { type: 'object' } } }
     await h.runtime.startActivation(spec)
     expect(h.startActivation).toHaveBeenCalledWith({ ...spec, request: { ...spec.request, agentOptions: valid } })
+  })
+})
+describe('start request shapes across hosts', () => {
+  it('routes the flat activation spec of DSH 0.2.2-rc.3 and hands it back flat', async () => {
+    const h = setup(); const signal = new AbortController().signal
+    const spec = { provider: 'standard', parent, childId: 'reserved', delivery: 'parent', label: 'test', cwd: '/test', maxDepth: 2, signal,
+      agentOptions: { ...invalid, reasoningEffort: 'wrong', temperature: .5 } }
+    await expect(h.runtime.startActivation(spec)).resolves.toBe('activation')
+    expect(h.startActivation).toHaveBeenCalledExactlyOnceWith({ ...spec, agentOptions: { ...valid, temperature: .5 } })
+    expect(h.startActivation.mock.calls[0]?.[0]).not.toHaveProperty('request')
+  })
+  it('applies the user route to a flat spec that names no model, and rejects an invalid one before the host starts', async () => {
+    const h = setup(); await h.runtime.startActivation({ provider: 'standard', parent })
+    expect(h.startActivation).toHaveBeenCalledExactlyOnceWith({ provider: 'standard', parent, agentOptions: valid })
+    const bad = setup(invalid)
+    await expect(bad.runtime.startActivation({ provider: 'standard', parent, agentOptions: valid })).rejects.toThrow('no configured model')
+    expect(bad.startActivation).not.toHaveBeenCalled()
+  })
+  it('keeps the nested request of hosts up to 0.2.2-rc.1 nested', async () => {
+    const h = setup(); const spec = { provider: 'standard', label: 'test', request: { parent, cwd: '/test' } }
+    await h.runtime.startActivation(spec)
+    expect(h.startActivation).toHaveBeenCalledExactlyOnceWith({ ...spec, request: { ...spec.request, agentOptions: valid } })
+    expect(h.startActivation.mock.calls[0]?.[0]).not.toHaveProperty('agentOptions')
+  })
+  it('pauses dispatch and names the seam when a start request carries no parent, then recovers on a readable one', async () => {
+    const h = setup(); const paused = /Subagent dispatch is paused.*subagents start request\.parent/
+    await expect(h.runtime.startActivation({ provider: 'standard', task: { owner: parent } })).rejects.toThrow(paused)
+    await expect(h.runtime.startContinuable({ provider: 'standard', request: {} })).rejects.toThrow(paused)
+    await expect((h.runtime.start as (...args: unknown[]) => Promise<unknown>)('standard', undefined)).rejects.toThrow(paused)
+    expect(h.startActivation).not.toHaveBeenCalled(); expect(h.startContinuable).not.toHaveBeenCalled(); expect(h.start).not.toHaveBeenCalled()
+    expect((await h.authority.status('s1')).seams).toEqual([{ capability: 'model-lock', missing: [START_PARENT_SEAM], mismatched: [] }])
+    await expect(h.runtime.startActivation({ provider: 'standard', parent })).resolves.toBe('activation')
+    expect((await h.authority.status('s1')).seams).toBeUndefined()
+    await expect(h.runtime.startContinuable({ provider: 'standard', request: { parent } })).resolves.toBe('continuable')
+    await expect(h.runtime.start('standard', { parent })).resolves.toBe('started')
   })
 })
 describe('subagents service as a host seam', () => {

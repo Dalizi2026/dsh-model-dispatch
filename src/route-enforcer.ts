@@ -13,8 +13,16 @@ import { mergeAgentOptions } from './merge.ts'
 import { delegationSelection } from './delegation-selection.ts'
 import { type LockStore, validSelection } from './route-locks.ts'
 import { PLUGIN_VERSION, ROUTE_POLICY_VERSION, type RouteLock, type RouteSource, type RouteStatus } from './route-contract.ts'
-import { COMPACTION_ID_SEAM, lockPausedMessage, type HostSeams } from './host-seams.ts'
+import { COMPACTION_ID_SEAM, START_PARENT_SEAM, lockPausedMessage, type HostSeams } from './host-seams.ts'
 
+/**
+ * Missing seams that pause children already running. An unreadable start
+ * request stops only that start (`admitStart`); children that hold a lock keep
+ * their requests.
+ */
+function pausing(missing: readonly string[]): string[] {
+  return missing.filter(seam => seam !== START_PARENT_SEAM)
+}
 export class RouteBlocked extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'ModelRouteBlocked' }
 }
@@ -43,8 +51,16 @@ export class RouteEnforcer {
 
   /** Checked at every use: a missing seam pauses children until the host provides it again. */
   private requireSeams(): void {
-    const { missing } = this.seams.check('model-lock')
+    const missing = pausing(this.seams.check('model-lock').missing)
     if (missing.length) throw new RouteBlocked('HOST_SEAMS_MISSING', lockPausedMessage(missing))
+  }
+  /**
+   * A native start request whose parent cannot be read stops that start and is
+   * reported as a missing seam until a readable request arrives.
+   */
+  admitStart(readable: boolean): asserts readable {
+    this.seams.observe('model-lock', START_PARENT_SEAM, readable, true)
+    if (!readable) throw new RouteBlocked('HOST_SEAMS_MISSING', lockPausedMessage([START_PARENT_SEAM]))
   }
 
   /** Call after installing guards. Errors are contained so guards stay mounted. */
@@ -212,10 +228,10 @@ export class RouteEnforcer {
     const value: RouteStatus = { pluginVersion: PLUGIN_VERSION, policyVersion: ROUTE_POLICY_VERSION, health: this.state, state: this.state === 'ready' ? 'ready' : 'blocked', sessionId: id }
     const seams = this.seams.report()
     if (seams.length) value.seams = seams
-    const paused = seams.find(report => report.capability === 'model-lock' && report.missing.length)
+    const paused = pausing(seams.find(report => report.capability === 'model-lock')?.missing ?? [])
     try {
       await this.ready()
-      if (paused) throw new RouteBlocked('HOST_SEAMS_MISSING', lockPausedMessage(paused.missing))
+      if (paused.length) throw new RouteBlocked('HOST_SEAMS_MISSING', lockPausedMessage(paused))
       const header = await this.header(id)
       if (!header) {
         value.state = 'missing'; value.error = 'Session does not exist or is unavailable'

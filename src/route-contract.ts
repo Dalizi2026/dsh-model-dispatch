@@ -9,9 +9,10 @@ export type RouteSource = 'session' | 'default' | 'follow-main' | 'inherited-loc
 /** Host-side capabilities; each UI entry degrades on its own in the client. */
 export type CapabilityId = 'model-lock' | 'plan-switch'
 /**
- * One degraded capability. `missing` seams switch the capability off or pause
- * it; `mismatched` seams carried event data of an unexpected shape, and the
- * capability keeps running in its conservative fallback.
+ * One degraded capability. `missing` seams, absent or carrying data the
+ * capability cannot run on, switch it off or pause it; `mismatched` seams
+ * carried event data of an unexpected shape, and the capability keeps running
+ * in its conservative fallback.
  */
 export interface CapabilityReport {
   capability: CapabilityId

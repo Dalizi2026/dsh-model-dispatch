@@ -9,6 +9,7 @@ dsh-model-dispatch 的全部说明文档都从这里找。第一次接触这个�
 | 插件怎么装、怎么用、常见问题 | [README](../README.zh.md) |
 | 子代理用哪个模型、为什么换不掉 | [1.2.0 路由锁定](releases/1.2.0-route-locking.md)，补充规则见 [1.2.2](releases/1.2.2-fixes.md) |
 | DSH 升级后出现“功能已降级”是什么意思 | [1.3.0 宿主接缝](releases/1.3.0-host-seams.md) |
+| DSH 0.2.2 上子代理启动报错，或子代理目录看不见 | [1.3.1](releases/1.3.1-dsh-0.2.2-fixes.md) |
 | 为什么不按 DSH 版本号限制安装 | [ADR 0001](adr/0001-host-seams-not-versions.md) |
 | 哪些 DSH 版本跑通过完整测试，怎么补一条记录 | [已验证版本](verified-versions.md) |
 | 模型菜单的收藏、最近使用、思考强度怎么算 | [收藏模型与思考强度](favorite-efforts.md) |
@@ -49,7 +50,7 @@ docs/
 
 | 版本 | 日期 | 验证宿主 | 主题 | 状态 |
 |---|---|---|---|---|
-| [1.3.1](releases/1.3.1-subagent-catalog-clipping-fix.md) | 2026-11-16 | DSH 0.2.2-rc.1、0.2.2-rc.3 | 修复会话头部的子代理目录被裁切 | 候选 |
+| [1.3.1](releases/1.3.1-dsh-0.2.2-fixes.md) | 2026-11-16 | DSH 0.2.2-rc.1、0.2.2-rc.3 | 修复 0.2.2-rc.3 上子代理无法启动；修复会话头部的子代理目录被裁切 | 现行 |
 | [1.3.0](releases/1.3.0-host-seams.md) | 2026-11-07 | DSH 0.2.1-rc.5、0.2.2-rc.1 | 按宿主接缝运行；能力降级与提示；适配 0.2.2 的步骤时序 | 现行 |
 | [1.2.3](releases/1.2.3-compatibility.md) | 2026-11-04 | DSH 0.2.1-rc.5 | 开发依赖与类型对齐 rc.5 | 历史 |
 | [1.2.2](releases/1.2.2-fixes.md) | 2026-10-29 | DSH 0.2.1-rc.3 | 子代理压缩请求、路由状态显示、计划恢复的修复 | 现行 |
