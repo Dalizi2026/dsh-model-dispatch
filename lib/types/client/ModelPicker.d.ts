@@ -1,5 +1,5 @@
 import type { ModelCatalog, ModelSelection, SessionId } from '@deepseek-ai/dsh-api-remotes/client';
-import type { ModelSelectionConfig } from '../shared.ts';
+import { type ModelSelectionConfig } from '../shared.ts';
 import type { LocaleKey } from './locales.ts';
 export interface ModelCatalogAccess {
     loadCatalog: () => Promise<ModelCatalog>;

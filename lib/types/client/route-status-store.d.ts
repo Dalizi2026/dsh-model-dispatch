@@ -1,5 +1,5 @@
 /** Host acknowledgements, never optimistic lock badges. */
-import { type RouteStatus } from '../route-contract.ts';
+import { type CapabilityReport, type RouteStatus } from '../route-contract.ts';
 import type { ModelSelectionConfig } from '../shared.ts';
 export interface RouteSnapshot {
     value?: RouteStatus;
@@ -19,3 +19,5 @@ export declare class RouteStatusStore {
     refresh(id: string): Promise<RouteStatus>;
     confirm(parentId: string, childId: string, selection: ModelSelectionConfig): Promise<void>;
 }
+/** Degraded host capabilities, checked by the host on each read; never polled. */
+export declare function fetchHostSeams(): Promise<CapabilityReport[]>;

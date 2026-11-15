@@ -1,5 +1,5 @@
 /** Host acknowledgements, never optimistic lock badges. */
-import { ROUTE_CONFIRM_PATH, ROUTE_STATUS_PATH, ROUTE_POLICY_VERSION, type RouteStatus } from '../route-contract.ts'
+import { HOST_SEAMS_PATH, ROUTE_CONFIRM_PATH, ROUTE_STATUS_PATH, ROUTE_POLICY_VERSION, type CapabilityReport, type RouteStatus } from '../route-contract.ts'
 import type { ModelSelectionConfig } from '../shared.ts'
 export interface RouteSnapshot { value?: RouteStatus; error?: string }
 export class RouteStatusStore {
@@ -48,4 +48,11 @@ export class RouteStatusStore {
     this.publish(childId, { value })
     if (value.health !== 'ready' || value.state !== 'locked') throw new Error(value.error ?? 'The host did not confirm model protection')
   }
+}
+/** Degraded host capabilities, checked by the host on each read; never polled. */
+export async function fetchHostSeams(): Promise<CapabilityReport[]> {
+  const response = await fetch(HOST_SEAMS_PATH, { credentials: 'same-origin', cache: 'no-store' })
+  const body = await response.json().catch(() => ({})) as { ok?: boolean; value?: unknown; error?: { message?: string } }
+  if (!response.ok || !body.ok || !Array.isArray(body.value)) throw new Error(body.error?.message ?? `HTTP ${response.status}`)
+  return body.value as CapabilityReport[]
 }

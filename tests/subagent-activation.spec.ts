@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apply as applyNativeTool } from '@deepseek-ai/dsh-tool-subagent'
 import { installSubagentCatalog, assertCatalogRoute } from '../src/subagent-catalog.ts'
-import { authorityFor } from './route-fixture.ts'
+import { authorityFor, hostServices } from './route-fixture.ts'
 import { installSubagentRouting } from '../src/subagent-routing.ts'
 import type { ModelSelectionConfig } from '../src/shared.ts'
 
@@ -30,7 +30,7 @@ async function setup() {
     sessionProjections: { register() {}, stateOf: () => policy },
     systemPrompt: { section() {}, context() {}, getSectionOrder: () => 0, getContextOrder: () => 0 },
     logger: { warn() {}, info() {} },
-    get(name: string) { return name === 'llm' ? llm : name === 'agentPresets' ? { readDocument: async () => ({ description: 'test preset' }) } : name === 'subagentModelSelection' ? { current: () => ({ enabled: true, allowedModels: policy }) } : undefined },
+    get: hostServices({ llm, subagents: runtime, agentPresets: { readDocument: async () => ({ description: 'test preset' }) }, subagentModelSelection: { current: () => ({ enabled: true, allowedModels: policy }) } }),
     on(name: string, fn: any) { hooks.set(name, fn) },
     inject(_deps: unknown, apply: (ctx: unknown) => void) { apply(scope) },
     effect(install: () => () => void) { const dispose = install(); cleanups.push(dispose); return dispose },

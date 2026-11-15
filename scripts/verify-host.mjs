@@ -136,6 +136,13 @@ try {
     const response = await fetch(origin + '/_dsh/model-switch/' + route, { method: data ? 'POST' : 'GET', headers: { cookie, ...(data ? { 'content-type': 'application/json' } : {}) }, ...(data ? { body: JSON.stringify(data) } : {}) })
     const result = await response.json(); assert(response.ok, JSON.stringify(result)); return result.value
   }
+  // Every host seam must be present, and every observed event must carry the
+  // data shape the plugin relies on; a non-empty report fails this version.
+  const expectSeams = async name => {
+    const seams = await request('host-seams'); evidence.seams = seams
+    assert.deepEqual(seams, [], 'degraded capabilities: ' + JSON.stringify(seams))
+    evidence.cases.push({ name, pass: true })
+  }
   if (phase) {
     const parentId = previousChild.parentId, childId = previousChild.sessionId
     const { agent } = await ctx.sessionController.resolveAgent(parentId); roots.add(agent.id)
@@ -168,9 +175,11 @@ try {
     const status = await request('route-status?sessionId=' + childId)
     assert.equal(status.pluginVersion, pluginVersion); assert.equal(status.policyVersion, 1); evidence.runtimePluginVersion = status.pluginVersion
     assert.equal(status.state, 'locked'); assert.deepEqual(status.expected, expected); assert.deepEqual(status.actual, expected)
+    assert.equal(status.seams, undefined, 'route status reported degraded capabilities')
     assert(evidence.historyRetained, 'original context was not retained after resume')
     assert.equal(evidence.calls.filter(c => c.provider === OPUS.provider).length, 0)
     evidence.cases.push({ name: phase === 'historical' ? 'human-confirmed model resumes with original context' : 'new process restores the child lock despite changed defaults', pass: true, route: expected, opusDispatches: 0 })
+    await expectSeams('every host seam present after resume')
   } else {
     const { sessionId } = await ctx.sessionController.create({ cwd: path.join(home, 'workspace') })
     const { agent } = await ctx.sessionController.resolveAgent(sessionId); roots.add(agent.id)
@@ -206,6 +215,7 @@ try {
     const status = await request('route-status?sessionId=' + child)
     assert.equal(status.pluginVersion, pluginVersion); assert.equal(status.policyVersion, 1); evidence.runtimePluginVersion = status.pluginVersion
     assert.equal(status.state, 'locked'); assert.deepEqual(status.expected, GLM); assert.deepEqual(status.actual, GLM)
+    assert.equal(status.seams, undefined, 'route status reported degraded capabilities')
     evidence.cases.push({ name: 'authenticated host-acknowledged status', pass: true })
     // Exercise the real BasicCompactionEngine, not a synthetic purpose bypass.
     const compactCalls = evidence.calls.filter(c => c.purpose === 'compaction')
@@ -288,6 +298,8 @@ try {
     assert.deepEqual(settings.find(row => row.id === 'agent-default-model').config, OPUS, 'session/plan selection changed the new-session default')
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'storages/model-switch/plan-main-models.json'))), {})
     evidence.cases.push({ name: 'independent default and cleared plan recovery', pass: true })
+    // After compaction and plan approval have run, event data shapes are known.
+    await expectSeams('every host seam present and every observed event shaped as expected')
   }
   evidence.pass = true
 } catch (cause) {

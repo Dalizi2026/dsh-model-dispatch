@@ -1,10 +1,11 @@
 /** Three settings rows, with only the scope needed to choose a model. */
-import { useId, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { resolveCustomSelection, type RouteSwitchConfig } from '../shared.ts'
 import { ConfigStore, MainModelStore } from './config-store.ts'
 import { ModelPicker, type ModelCatalogAccess } from './ModelPicker.tsx'
 import type { LocaleKey } from './locales.ts'
+import { SeamNotice, type UiCapabilityReport } from './SeamNotice.tsx'
 import css from './styles.module.css'
 
 export interface SettingsInjected {
@@ -12,6 +13,8 @@ export interface SettingsInjected {
   mainStore: MainModelStore
   access: ModelCatalogAccess
   t: (key: LocaleKey) => string
+  /** Degraded capabilities, read once each time the section opens. */
+  seams: () => Promise<UiCapabilityReport[]>
 }
 export type SettingsSectionProps = PropsRuntime<'settings.section'> & Partial<SettingsInjected>
 
@@ -44,11 +47,23 @@ function RouteRow({ title, hint, route, save, access, t, busy }: {
 }
 
 export function SettingsSection(props: SettingsSectionProps) {
-  if (!props.store || !props.mainStore || !props.access || !props.t) return null
-  return <SettingsSectionLoaded store={props.store} mainStore={props.mainStore} access={props.access} t={props.t} />
+  if (!props.store || !props.mainStore || !props.access || !props.t || !props.seams) return null
+  return <SettingsSectionLoaded store={props.store} mainStore={props.mainStore} access={props.access} t={props.t} seams={props.seams} />
 }
 
-function SettingsSectionLoaded({ store, mainStore, access, t }: SettingsInjected) {
+function useSeamReport(load: () => Promise<UiCapabilityReport[]>): { reports?: UiCapabilityReport[]; error?: string } {
+  const [result, setResult] = useState<{ reports?: UiCapabilityReport[]; error?: string }>({})
+  useEffect(() => {
+    let live = true
+    load().then(reports => { if (live) setResult({ reports }) },
+      cause => { if (live) setResult({ error: cause instanceof Error ? cause.message : String(cause) }) })
+    return () => { live = false }
+  }, [load])
+  return result
+}
+
+function SettingsSectionLoaded({ store, mainStore, access, t, seams }: SettingsInjected) {
+  const seamReport = useSeamReport(seams)
   const snap = useSyncExternalStore(listener => store.subscribe(listener), () => store.getSnapshot())
   const main = useSyncExternalStore(listener => mainStore.subscribe(listener), () => mainStore.getSnapshot())
   const [saving, setSaving] = useState(false)
@@ -67,6 +82,8 @@ function SettingsSectionLoaded({ store, mainStore, access, t }: SettingsInjected
       <h2 className={css.title}>{t('title')}</h2>
       <span className={css.saveStatus} role="status">{saving ? t('statusSaving') : message}</span>
     </header>
+    {seamReport.reports && <SeamNotice className={css.seamBanner} reports={seamReport.reports} t={t} />}
+    {seamReport.error && <p className={css.error} role="alert">{t('seamsUnavailable')}: {seamReport.error}</p>}
     {(error || snap.error) && <p className={css.error} role="alert">{t('saveError')}: {error ?? t('unavailable')}</p>}
     <div className={css.settingsList}>
       <SettingRow title={t('mainTitle')} hint={t('mainHint')}>

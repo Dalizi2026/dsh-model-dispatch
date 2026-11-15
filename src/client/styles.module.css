@@ -22,3 +22,7 @@
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .actions > :last-child { margin-left: auto; }
 .planPicker { display: flex; align-items: center; min-width: 0; }
+.seamBanner { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #b7791f) 40%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #b7791f) 8%, transparent); font-size: 12px; line-height: 19px; overflow-wrap: anywhere; }
+.seamBanner p { margin: 0 0 6px; }
+.seamBanner p:last-child { margin-bottom: 0; color: var(--dsw-alias-label-tertiary, #777784); }
+.seamBanner code { font-size: 11px; }

@@ -9,6 +9,11 @@ export interface SubagentCatalogInjected {
 }
 /** Full props for the session-header catalog action. */
 export type SubagentCatalogActionProps = PropsRuntime<'conversation.session.header.actions'> & SubagentCatalogInjected & PropsLocale<'subagent'>;
+/** Keep the fixed catalog below its trigger and inside the horizontal viewport. */
+export declare function catalogMenuPosition(rect: Pick<DOMRect, 'left' | 'bottom'>, viewportWidth: number): {
+    top: number;
+    left: number;
+};
 /**
  * Render the current session's direct catalog and lazily expanded descendants.
  * @param props - session standard props plus catalog navigation actions.

@@ -3,6 +3,8 @@ import { SessionController } from '@deepseek-ai/dsh-api-session-controller'
 // Pin this compatibility check to the actual rc.2 native command implementation.
 import { SessionCommandController } from '../node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/commands.js'
 import { installSessionModelScope } from '../src/session-model-scope.ts'
+import { HostSeams } from '../src/host-seams.ts'
+import { hostServices } from './route-fixture.ts'
 import type { ModelSelectionConfig } from '../src/shared.ts'
 
 const initial = { provider: 'p', model: 'default', reasoningEffort: 'max' }
@@ -88,5 +90,14 @@ describe('configured defaults independent from native session selections', () =>
     await h.pick('s1', 'a')
     expect(h.defaults.currentSelection().model).toBe('a')
     expect(h.saveSelection).toHaveBeenCalledTimes(1)
+  })
+  it('installs nothing when the host has no default saver, so plan switching reports the gap and stays off', () => {
+    const controller = { selectModel() {} }; const select = controller.selectModel; const defaults = {}
+    installSessionModelScope({ inject(_deps: unknown, apply: (scope: unknown) => void) {
+      apply({ sessionController: controller, agentDefaultModel: defaults, effect(install: () => () => void) { install() } })
+    } } as never)
+    expect(controller.selectModel).toBe(select); expect(defaults).not.toHaveProperty('saveSelection')
+    const seams = new HostSeams({ get: hostServices({ sessionController: controller, agentDefaultModel: defaults }), logger: { warn() {}, info() {} } } as never)
+    expect(seams.check('plan-switch').missing).toEqual(['agentDefaultModel.saveSelection'])
   })
 })

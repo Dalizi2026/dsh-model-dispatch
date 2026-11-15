@@ -1,8 +1,9 @@
 /** Authenticated UI-only controls; model-facing tools never call confirmation. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { ROUTE_CONFIRM_PATH, ROUTE_STATUS_PATH } from './route-contract.ts'
+import { HOST_SEAMS_PATH, ROUTE_CONFIRM_PATH, ROUTE_STATUS_PATH } from './route-contract.ts'
 import { RouteEnforcer } from './route-enforcer.ts'
+import type { HostSeams } from './host-seams.ts'
 import { validSelection } from './route-locks.ts'
 export type HttpGate = (req: IncomingMessage) => number | undefined
 export function ownerGate(ctx: Context): HttpGate {
@@ -20,6 +21,10 @@ function json(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(JSON.stringify(value))
 }
+/** Gate refusals; a 503 means the host lacks the authentication seam itself. */
+function refuse(res: ServerResponse, status: number): void {
+  json(res, status, { ok: false, ...status === 503 ? { error: { message: 'DSH is missing the host seam connection.admit; the request cannot be authenticated' } } : {} })
+}
 async function body(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []; let length = 0
   for await (const chunk of req) {
@@ -29,17 +34,17 @@ async function body(req: IncomingMessage): Promise<unknown> {
   }
   return JSON.parse(Buffer.concat(chunks).toString())
 }
-export function installRouteHttp(ctx: Context, authority: RouteEnforcer): void {
+export function installRouteHttp(ctx: Context, authority: RouteEnforcer, seams: Pick<HostSeams, 'report'>): void {
   ctx.inject(['webServer'], scope => {
     const gate = ownerGate(ctx)
     scope.effect(() => scope.webServer.register({ kind: 'exact', path: ROUTE_STATUS_PATH, handler: async (req, res) => {
-      const denied = gate(req); if (denied) { json(res, denied, { ok: false }); return }
+      const denied = gate(req); if (denied) { refuse(res, denied); return }
       if (req.method !== 'GET') { json(res, 405, { ok: false }); return }
       const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get('sessionId') ?? ''
       json(res, 200, { ok: true, value: await authority.status(id) })
     } }), 'model-switch: protected route status')
     scope.effect(() => scope.webServer.register({ kind: 'exact', path: ROUTE_CONFIRM_PATH, handler: async (req, res) => {
-      const denied = gate(req); if (denied) { json(res, denied, { ok: false }); return }
+      const denied = gate(req); if (denied) { refuse(res, denied); return }
       if (req.method !== 'POST') { json(res, 405, { ok: false }); return }
       try {
         const data = await body(req) as { parentId?: unknown; childId?: unknown; selection?: unknown }
@@ -48,5 +53,10 @@ export function installRouteHttp(ctx: Context, authority: RouteEnforcer): void {
         json(res, 200, { ok: true, value: await authority.status(data.childId) })
       } catch (cause) { json(res, 409, { ok: false, error: { message: cause instanceof Error ? cause.message : String(cause) } }) }
     } }), 'model-switch: owner-confirmed historical route')
+    scope.effect(() => scope.webServer.register({ kind: 'exact', path: HOST_SEAMS_PATH, handler: (req, res) => {
+      const denied = gate(req); if (denied) { refuse(res, denied); return }
+      if (req.method !== 'GET') { json(res, 405, { ok: false }); return }
+      json(res, 200, { ok: true, value: seams.report() })
+    } }), 'model-switch: host seam report')
   })
 }

@@ -27,6 +27,7 @@ import { assertCatalogRoute, installSubagentCatalog } from './subagent-catalog.t
 import { RouteLockStore } from './route-locks.ts'
 import { RouteEnforcer } from './route-enforcer.ts'
 import { installRouteHttp, ownerGate } from './route-http.ts'
+import { HostSeams } from './host-seams.ts'
 
 export {
   resolveCustomSelection,
@@ -41,7 +42,8 @@ export { formatModelLabel, formatContextWindow } from './label.ts'
 export const Config = ConfigSchema
 
 export const name = 'model-switch'
-export const inject = ['subagents']
+// No plugin-level `inject`: a missing service must not stop the guards from
+// mounting. Each capability injects or checks its own host seams (ADR 0001).
 
 /**
  * Wrap subagent start paths with model routes from live plugin config.
@@ -73,18 +75,19 @@ export async function apply(ctx: Context, config: ModelSwitchConfig = {}): Promi
     await assertCatalogRoute(ctx, route)
     return resolver(route)
   }
-  const authority = new RouteEnforcer(ctx, current, overrides, new RouteLockStore(), admit)
+  const seams = new HostSeams(ctx)
+  const authority = new RouteEnforcer(ctx, current, overrides, new RouteLockStore(), admit, seams)
   // Mount fail-closed boundaries before touching disk. Initialization failure
   // must not dispose the protection and leave native inheritance running.
   authority.installGuards()
   installSubagentRouting(ctx, authority)
   installSubagentCatalog(ctx, authority)
-  installRouteHttp(ctx, authority)
+  installRouteHttp(ctx, authority, seams)
   installSessionOverridesHttp(ctx, overrides, async route => { await admit(route) }, ownerGate(ctx))
   const planMains = new SessionOverrideStore('plan-main-models.json')
   // Keep plan storage failures visible at the request boundary, too.
   installPlanMainsHttp(ctx, planMains)
-  installPlanModelSwitch(ctx, current, planMains)
+  installPlanModelSwitch(ctx, current, planMains, seams)
   await authority.initialize()
   try {
     await planMains.ready()

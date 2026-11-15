@@ -5,6 +5,7 @@ import type { ModelSelectionConfig } from '../shared.ts'
 import { ModelPicker, type ModelCatalogAccess } from './ModelPicker.tsx'
 import type { RouteStatusStore } from './route-status-store.ts'
 import type { LocaleKey } from './locales.ts'
+import { lockPaused, SeamNotice } from './SeamNotice.tsx'
 import css from './SubagentModelBadge.module.css'
 export interface SubagentModelBadgeInjected { routes: RouteStatusStore; access: ModelCatalogAccess; t: (key: LocaleKey) => string }
 export type SubagentModelBadgeProps = PropsRuntime<'conversation.session.header.actions'> & Partial<SubagentModelBadgeInjected>
@@ -24,7 +25,8 @@ function Loaded({ sessionId, useSessions, routes, access, t }: PropsRuntime<'con
   return <details className={css.details} data-model-switch-badge="">
     <summary className={css.badge}>{snap.error ? t('routeUnavailable') : status?.state === 'blocked' ? t('routeBlocked') : status?.state === 'confirmation-required' ? t('routeConfirmRequired') : status?.state === 'locked' ? `${t('routeLocked')} · ${status.expected?.model}` : t('statusLoading')}</summary>
     <div className={css.panel}>
-      {(snap.error || status?.error) && <p role="alert">{snap.error ?? status?.error}</p>}
+      <SeamNotice reports={status?.seams ?? []} t={t} />
+      {(snap.error || (status?.error && !lockPaused(status.seams))) && <p role="alert">{snap.error ?? status?.error}</p>}
       {status?.state === 'confirmation-required' && status.parentId && <ModelPicker sessionId={sessionId} access={access} value={undefined} onChange={selection => routes.confirm(status.parentId!, sessionId, selection)} roleLabel={t('routeConfirm')} scopeHint={t('routeConfirmHint')} t={t} />}
       {status?.expected && <><p>{t('routeExpected')}: {describe(status.expected)}</p><p>{t('routeActual')}: {status.actual ? describe(status.actual) : t('routeNoRequest')}</p><p>{t('routeSource')}: {sourceText}</p></>}
       {status?.conflict && <p>{t('routeConflict')}: {describe(status.conflict as ModelSelectionConfig)}</p>}

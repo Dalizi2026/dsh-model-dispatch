@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { installPlanModelSwitch, type PlanMainStore } from '../src/plan-model.ts'
 import { PLAN_BOUNDARY_KEY, planBoundaryDefinition } from '../src/plan-boundary.ts'
+import { HostSeams, PLAN_APPROVED_SEAM } from '../src/host-seams.ts'
 import type { Config, ModelSelectionConfig } from '../src/shared.ts'
 
 const smart = { provider: 'step', model: 'step-model' }
@@ -25,22 +26,42 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
     if (decision.kind !== 'reject' && plan.pending !== undefined) { plan.active = plan.pending; plan.pending = undefined; plan.wanted = null }
     return decision
   })
-  installPlanModelSwitch({
-    inject(_deps: string[], apply: (ctx: unknown) => void) {
-      apply({
-        on: events.on.bind(events), get: () => isolated ? undefined : ({ get: () => plan }),
-        sessionProjections: {
-          register() {},
-          stateOf(_session: unknown, key: string) { return key === 'plan' ? plan : key === PLAN_BOUNDARY_KEY ? boundary : projected },
-        },
-        sessionController: { async selectModel(request: ModelSelectionConfig) {
-          await admission; calls.push(request); projected.pending = request; selected.current = request
-        } },
-      })
+  // The host services the switch reads; tests remove a method to model a changed DSH.
+  const services: Record<string, Record<string, unknown>> = {
+    sessionProjections: {
+      register() {},
+      stateOf(_session: unknown, key: string) { return key === 'plan' ? plan : key === PLAN_BOUNDARY_KEY ? boundary : projected },
     },
-  } as never, () => config, mains)
+    sessionController: { async selectModel(request: ModelSelectionConfig) {
+      await admission; calls.push(request); projected.pending = request; selected.current = request
+    } },
+    agentDefaultModel: { saveSelection() {} },
+  }
+  // Native /plan and exit tool stand-ins: like DSH 0.2.2 between turns, the
+  // command commits plan state at once and approval queues the exit.
+  const commands = { async execute(_agent: unknown, line: string) {
+    if (line.trim() === '/plan') plan.active = true
+    if (line.trim() === '/plan off') plan.active = false
+    return { ok: true }
+  } }
+  const exitTool = { name: 'exit_plan_mode', async execute(args: { approve: boolean }) {
+    if (args.approve) plan.pending = false
+    return { approved: args.approve }
+  } }
+  const optional: Record<string, unknown> = { commands, tools: { get: (name: string) => name === 'exit_plan_mode' ? exitTool : undefined } }
+  const lookup = (name: string) => name === 'planMode' ? (isolated ? undefined : { get: () => plan }) : optional[name] ?? services[name]
+  const seams = new HostSeams({ get: lookup, logger: { warn() {}, info() {} } } as never)
+  const disposers: (() => void)[] = []
+  const scope: Record<string, unknown> = { on: events.on.bind(events), get: lookup, ...services, ...optional,
+    logger: { warn() {}, info() {} },
+    effect(install: () => () => void) { disposers.push(install()) },
+    inject(deps: string[], apply: (ctx: unknown) => void) { if (deps.every(name => lookup(name) !== undefined)) apply(scope) } }
+  installPlanModelSwitch(scope as never, () => config, mains, seams)
   return {
-    session, agent, plan, projected, calls, mains,
+    session, agent, plan, projected, calls, mains, services, seams, commands, exitTool, optional,
+    /** The route a host that fixes it before assembly (DSH 0.2.2) would use for the next step. */
+    nextRoute: () => selected.current,
+    dispose() { for (const dispose of disposers.splice(0).reverse()) dispose() },
     gate(promise: Promise<void>) { admission = promise },
     event(type: string, data: any) {
       boundary = planBoundaryDefinition.apply(boundary, { type, data })
@@ -54,6 +75,9 @@ function setup(config: Config = { planPlanning: { mode: 'custom', selection: sma
     select(value: ModelSelectionConfig) { selected.current = value; projected.pending = value },
     async reviewResult(approved: boolean, isError = false) {
       await events.emit('tools/result', { name: 'exit_plan_mode', agent }, { isError, value: { approved }, content: [] })
+    },
+    async reviewValue(value: unknown) {
+      await events.emit('tools/result', { name: 'exit_plan_mode', agent }, { isError: false, value, content: [] })
     },
     async request() {
       await events.waterfall('system-prompt/assemble', { variables: {} }, { agent }, async () => ({ variables: {} }))
@@ -194,6 +218,69 @@ describe('temporary planning models before native model snapshots', () => {
     const h = setup(); h.plan.pending = true; await h.request(); h.consume(); h.plan.active = true; h.approve()
     h.gate(Promise.reject(new Error('unavailable'))); await expect(h.request()).rejects.toThrow('unavailable')
     expect(h.mains.get('s1')).toEqual(main); h.gate(Promise.resolve()); expect(await h.request()).toMatchObject(main)
+  })
+})
+
+describe('switching when the plan intent happens', () => {
+  it('records the planning model while /plan runs, before the next step fixes its route', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.consume()
+    await h.commands.execute(h.agent, '/plan')
+    expect(h.nextRoute()).toMatchObject(smart); expect(h.mains.get('s1')).toEqual(main)
+    expect((await h.request()).model).toBe(smart.model); expect(h.calls).toHaveLength(1)
+  })
+  it('restores the main model while /plan off runs', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.consume(); await h.commands.execute(h.agent, '/plan'); h.consume()
+    await h.commands.execute(h.agent, '/plan off')
+    expect(h.nextRoute()).toMatchObject(main); expect(h.mains.get('s1')).toBeUndefined()
+  })
+  it('restores the main model inside an approved exit tool call, and keeps planning on a rejected one', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.consume(); await h.commands.execute(h.agent, '/plan'); h.consume()
+    await h.request()
+    await expect(h.exitTool.execute({ approve: false }, { agent: h.agent } as never)).resolves.toEqual({ approved: false })
+    expect(h.nextRoute()).toMatchObject(smart)
+    await expect(h.exitTool.execute({ approve: true }, { agent: h.agent } as never)).resolves.toEqual({ approved: true })
+    expect(h.nextRoute()).toMatchObject(main); expect(h.mains.get('s1')).toBeUndefined()
+  })
+  it('restores the native command and tool on unload', async () => {
+    const h = setup(undefined, true); const nativeExit = h.exitTool.execute
+    await h.request(); expect(h.exitTool.execute).not.toBe(nativeExit)
+    h.dispose(); expect(h.exitTool.execute).toBe(nativeExit)
+    await h.commands.execute(h.agent, '/plan'); expect(h.calls).toEqual([])
+  })
+  it('falls back to switching at assembly when the host has no commands service', async () => {
+    const h = setup(undefined, true)
+    delete h.optional.commands
+    await h.request(); h.consume(); h.plan.active = true
+    expect(h.nextRoute()).toMatchObject(main)
+    expect((await h.request()).model).toBe(smart.model)
+  })
+})
+
+describe('plan auto-switch host seams', () => {
+  it('keeps main requests on the main model while a plan seam is missing, and switches once it returns', async () => {
+    const h = setup(); const controller = h.services.sessionController!; const select = controller.selectModel
+    delete controller.selectModel
+    h.plan.pending = true
+    expect(await h.request()).toEqual(main); expect(h.calls).toEqual([]); expect(h.mains.get('s1')).toBeUndefined()
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: ['sessionController.selectModel'], mismatched: [] })
+    controller.selectModel = select
+    expect((await h.request()).model).toBe(smart.model)
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: [], mismatched: [] })
+  })
+  it('reports an approval result without a boolean approved and still restores on the plan exit', async () => {
+    const h = setup(undefined, true)
+    await h.request(); h.plan.active = true
+    expect((await h.request()).model).toBe(smart.model); h.consume()
+    await h.reviewValue({ status: 'approved' })
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: [], mismatched: [PLAN_APPROVED_SEAM] })
+    expect((await h.request()).model).toBe(smart.model)
+    h.plan.active = false; h.event('plan/mode', { active: false }); await h.commit()
+    expect(await h.request()).toMatchObject(main)
+    await h.reviewResult(false)
+    expect(h.seams.check('plan-switch')).toEqual({ capability: 'plan-switch', missing: [], mismatched: [] })
   })
 })
 

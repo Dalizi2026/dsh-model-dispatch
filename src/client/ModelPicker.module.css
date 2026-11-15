@@ -1,12 +1,15 @@
 .root { position: relative; min-width: 0; }
-.trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 248px; height: 30px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 8px; outline: none; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #27272f); font: inherit; font-size: 12px; cursor: pointer; }
+/* One type size per trigger, so role, model, and effort share a baseline. Two label tiers only: the model is
+   primary and medium; role and effort are secondary. Hue stays reserved for status and interaction. */
+.trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 248px; height: 30px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 8px; outline: none; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #27272f); font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
 .trigger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
 .trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #5269dc); outline-offset: 2px; }
 .trigger:disabled { opacity: .6; cursor: default; }
-.role { flex: none; font-size: 10px; font-weight: 600; color: var(--dsw-alias-label-tertiary, #777784); }
+.role { flex: none; font-weight: 400; color: var(--dsw-alias-label-secondary, #555560); }
 .triggerLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 168px; font-weight: 500; }
-.triggerEffort { flex: none; color: var(--dsw-alias-label-tertiary, #777784); font-size: 10px; }
-.chevron { flex: none; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #777784); }
+.triggerEffort { flex: none; color: var(--dsw-alias-label-secondary, #555560); }
+.chevron { flex: none; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #777784); transition: transform 120ms ease-out; }
+.trigger[aria-expanded="true"] .chevron { transform: rotate(180deg); }
 .menu { position: fixed; z-index: 10000; width: min(360px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden; padding: 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 14px; background: var(--dsw-alias-bg-layer-1, #fff); box-shadow: 0 12px 40px #0002, 0 2px 8px #0001; color: var(--dsw-alias-label-primary, #27272f); box-sizing: border-box; }
 .menu[data-upwards="true"] { transform: translateY(-100%); }
 .menuHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 3px 4px 9px; font-size: 13px; font-weight: 600; }
@@ -26,13 +29,34 @@
 .description { font-size: 10px; line-height: 15px; color: var(--dsw-alias-label-tertiary, #777784); }
 .modelName, .description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .check { flex: none; width: 14px; color: var(--dsw-alias-state-business-primary, #5269dc); }
-.favorite { flex: none; width: 27px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary, #888894); cursor: pointer; font-size: 17px; }
-.favorite[aria-pressed="true"] { color: var(--dsw-alias-state-business-primary, #5269dc); }
-.favorite:hover, .favorite:focus-visible { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
 .effortSection { flex: none; padding: 4px 0 10px; }
 .efforts { display: flex; flex-wrap: wrap; gap: 4px; }
-.effort { height: 25px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary, #555560); cursor: pointer; font: inherit; font-size: 10px; }
+/* Effort chips share one look in the editor and in favorites/recents rows. Selection switches instantly; only the press scales, on pointer-down. */
+.effort { height: 25px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 6px; outline: none; background: transparent; color: var(--dsw-alias-label-secondary, #555560); cursor: pointer; font: inherit; font-size: 10px; white-space: nowrap; transition: transform 100ms ease-out; }
+.effort:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
+.effort:active:not(:disabled) { transform: scale(.96); }
+.effort:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #5269dc); outline-offset: 1px; }
+.effort:disabled { opacity: .6; cursor: default; }
 .effort[aria-pressed="true"] { border-color: var(--dsw-alias-state-business-primary, #5269dc); color: var(--dsw-alias-state-business-primary, #5269dc); background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #5269dc) 9%, transparent); }
+.effort[data-stale="true"] { color: var(--dsw-alias-label-tertiary, #777784); text-decoration: line-through; opacity: .55; }
+.rowChips { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 2px; }
+.rowChip { height: 24px; padding: 0 7px; }
+/* Favorites: a star badge rides the chip's corner on hover/focus, like the close badge on a macOS notification. */
+.chipWrap { position: relative; display: inline-flex; }
+.chipStar, .rowStar { padding: 0; border: 0; outline: none; color: var(--dsw-alias-state-business-primary, #5269dc); cursor: pointer; line-height: 1; transition: opacity 120ms ease-out, transform 120ms ease-out; }
+.chipStar { position: absolute; top: -7px; right: -6px; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--dsw-alias-bg-layer-1, #fff); box-shadow: 0 0 0 1px var(--dsw-alias-border-l2, #dedee3), 0 1px 3px #0002; font-size: 9px; opacity: 0; pointer-events: none; transform: scale(.85); }
+.rowStar { flex: none; width: 28px; height: 28px; margin-right: 4px; border-radius: 7px; background: transparent; font-size: 15px; opacity: 0; pointer-events: none; }
+.chipWrap:hover .chipStar, .chipWrap:focus-within .chipStar, .chipWrap[data-ghost="true"] .chipStar,
+.modelRow:hover .rowStar, .modelRow:focus-within .rowStar, .modelRow[data-ghost="true"] .rowStar { opacity: 1; pointer-events: auto; transform: none; }
+.chipStar:hover:not(:disabled), .rowStar:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
+.chipStar:active:not(:disabled), .rowStar:active:not(:disabled) { transform: scale(.9); }
+.chipStar:disabled, .rowStar:disabled { color: var(--dsw-alias-label-tertiary, #888894); cursor: default; }
+/* Removed in this menu: hollow until the menu closes, so the list never shifts and one tap restores it. */
+.chipWrap[data-ghost="true"] .effort { border-style: dashed; color: var(--dsw-alias-label-tertiary, #777784); background: transparent; }
+.chipWrap[data-ghost="true"] .chipStar, .modelRow[data-ghost="true"] .rowStar { color: var(--dsw-alias-label-tertiary, #888894); }
+@media (hover: none) {
+  .chipStar, .rowStar { opacity: 1; pointer-events: auto; transform: none; }
+}
 .clear { display: flex; align-items: center; justify-content: space-between; flex: none; width: 100%; padding: 9px 8px; margin-top: 5px; border: 0; border-top: 1px solid var(--dsw-alias-border-l2, #dedee3); background: transparent; color: var(--dsw-alias-label-secondary, #555560); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 .scopeHint { flex: none; padding: 8px 4px 3px; color: var(--dsw-alias-label-tertiary, #777784); font-size: 10px; line-height: 15px; border-top: 1px solid var(--dsw-alias-border-l2, #dedee3); }
 .status, .empty, .muted { padding: 14px 7px; color: var(--dsw-alias-label-tertiary, #777784); font-size: 12px; }
@@ -41,17 +65,33 @@
 .warning { padding: 6px 4px; font-size: 10px; color: var(--dsw-alias-label-tertiary, #777784); }
 @media (max-width: 640px) { .trigger { max-width: 190px; } .triggerEffort { display: none; } }
 
-.compact .trigger { max-width: 180px; }
-.compact .triggerLabel { max-width: 110px; display: var(--dsh-composer-model-text-display, block); }
-.compact .triggerEffort { display: none; }
+/* Composer chips join the host's borderless composer controls: same height, type, and hover surface. */
+.compact .trigger { max-width: 260px; height: 28px; gap: 5px; padding: 0 6px 0 8px; border-color: transparent; border-radius: var(--dsw-radius-sm, 6px); background: transparent; }
+.compact .trigger:hover:not(:disabled), .compact .trigger[aria-expanded="true"] { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
+.compact .triggerLabel { max-width: 140px; display: var(--dsh-composer-model-text-display, block); }
+/* The chip shows the exact model and effort new requests use; the model name truncates first. */
+.compact .triggerEffort { display: var(--dsh-composer-model-text-display, inline); }
 
 .stretch .trigger { width: 100%; max-width: none; height: 36px; padding: 0 11px; }
 .stretch .triggerLabel { flex: 1; max-width: none; text-align: left; }
 .stretch .triggerEffort { display: inline; }
+/* Narrow windows keep only the model name in composer chips; the menu still names the effort. */
+@media (max-width: 640px) { .compact .triggerEffort { display: none; } }
 
 .clear[aria-pressed="true"] { color: var(--dsw-alias-state-business-primary, #5269dc); }
 .selectionEditor { flex: none; padding: 10px 4px 2px; border-top: 1px solid var(--dsw-alias-border-l2, #dedee3); }
-.draftSummary { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.draftSummary { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.draftCopy { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+/* The star saves exactly the combination named beside it. */
+.favoriteToggle { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 7px; outline: none; background: transparent; color: var(--dsw-alias-label-tertiary, #888894); cursor: pointer; font-size: 17px; line-height: 1; transition: transform 100ms ease-out; }
+.favoriteToggle[aria-pressed="true"] { color: var(--dsw-alias-state-business-primary, #5269dc); }
+.favoriteToggle:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, #f3f3f7); }
+.favoriteToggle:active:not(:disabled) { transform: scale(.96); }
+.favoriteToggle:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #5269dc); outline-offset: 1px; }
+.favoriteToggle:disabled { opacity: .4; cursor: default; }
+.star { display: inline-block; }
+.notice { margin: 6px 0 0; color: var(--dsw-alias-label-tertiary, #777784); font-size: 10px; line-height: 15px; }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .effortUnavailable { margin: 6px 0 10px; color: var(--dsw-alias-label-tertiary, #777784); font-size: 10px; }
 .confirmActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .cancel, .apply { height: 30px; padding: 0 13px; border: 1px solid var(--dsw-alias-border-l2, #dedee3); border-radius: 7px; font: inherit; font-size: 12px; cursor: pointer; }
@@ -59,3 +99,9 @@
 .apply { background: var(--dsw-alias-state-business-primary, #5269dc); border-color: transparent; color: white; }
 .cancel:disabled, .apply:disabled { opacity: .5; cursor: default; }
 .cancel:focus-visible, .apply:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #5269dc); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .effort, .favoriteToggle, .chevron { transition: none; }
+  .chipStar, .rowStar { transition: opacity 120ms ease-out; transform: none; }
+  .effort:active:not(:disabled), .favoriteToggle:active:not(:disabled), .chipStar:active:not(:disabled), .rowStar:active:not(:disabled) { transform: none; }
+}

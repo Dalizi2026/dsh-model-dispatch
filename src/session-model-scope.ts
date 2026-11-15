@@ -14,6 +14,9 @@ export function installSessionModelScope(ctx: Context): void {
     scope.effect(() => {
       const select = controller.selectModel
       const save = defaults.saveSelection
+      // Never install half of it: a wrapped stand-in would hide the missing
+      // seam from the plan-switch check, which must stay off without protection.
+      if (typeof select !== 'function' || typeof save !== 'function') return () => {}
       const selectSession: typeof select = request => sessionOnly.run(true, () => select.call(controller, request))
       const saveDefault: typeof save = next => sessionOnly.getStore() === true
         ? Promise.resolve()
