@@ -2,87 +2,187 @@
 
 English | [中文](README.zh.md)
 
-Pick separate models and reasoning efforts for the main session, subagents, and plan mode in DeepSeek Harness (DSH).
+**Give the main chat, subagents, and plan mode in DeepSeek Harness (DSH) each their own model.**
 
-Project terms are defined in [GLOSSARY.md](GLOSSARY.md); architecture decisions are in [ADR 0001: host seams, not versions, decide whether the plugin runs](docs/adr/0001-host-seams-not-versions.md) (Chinese).
+Without the plugin, subagents inherit the main model and plan mode uses it too. With it you can choose them separately: a fast, cheap model for everyday chat, your strongest model for planning, and a third one for the subagents that do the work. You choose once, and the plugin makes sure each of them really runs on the model you chose.
 
-> This plugin is based on [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) — its original design and code, adapted and heavily optimized for the **DSH 0.2.x** interfaces: it follows the 0.2.x settings system (volatile Config + configForms), the subagent projections, and the session model-selection APIs, and adds plan-mode auto switching, per-session overrides, route validation, and a new UI. The upstream only supports 0.1.x.
+> Based on the design and code of [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) (DSH 0.1.x only), rewritten and extended for DSH 0.2.x. See [Credits](#credits).
 
-> **1.3.0: host seams, not versions, decide whether the plugin runs.** The DSH version gate is gone (`engines.dsh: "*"`). Each capability checks the host seams it needs when it is used; a missing seam pauses the model lock, switches plan auto-switch off, or hides one UI entry, and the chat chip, settings banner and host log name the missing seams. See [1.3.0 notes](docs/1.3.0-host-seams.md) (Chinese).
+## Three roles, three choices
 
-> **1.2.0: user-selected subagent routes are enforced for the child's lifetime.** Tool arguments and preset model preferences cannot override the session pick or settings default. Missing or invalid locks block requests instead of falling back. Historical children require human model confirmation before continuing. See [upgrade notes](docs/1.2.0-route-locking.md).
+| Role | When it is working | Where you choose it |
+|---|---|---|
+| **Main model** | Your everyday conversation with DSH | The **Main** chip in the chat input (this session only); **New session default** in settings |
+| **Subagent** | Subagents the main agent sends off to do work | The **Subagent** chip in the chat input (this session only); **Subagent default** in settings |
+| **Planning model** | The planning phase of plan mode (`/plan`) | **Planning model** in settings |
 
-## Features
+Each choice includes a reasoning effort. Every model configured in DSH is available, and newly added models show up in the menu automatically.
 
-- **Two chat-bar controls**: the input bar shows separate **Main** and **Subagent** chips, each naming the role, model, and reasoning effort (narrow windows show the model only) in the host's composer-control style. The main chip uses the native DSH switching API; the subagent pick only affects subagents started later in the current session.
-- **One unified model menu**: search, provider groups, favorites, recent models, and reasoning effort. Picking a model keeps the menu open so you can adjust the effort, then a single **Apply** saves; **Apply** stays disabled until something changes. Cancel, Escape, or clicking outside discards the draft — nothing is written.
-- **Favorites keep the reasoning effort**: a favorite is a model + effort combination; several efforts of one model share a single row of chips, and picking a model by name starts from the effort you last applied with it. See [favorites and reasoning effort](docs/favorite-efforts.md) (Chinese).
-- **Three settings rows**: new-session default model, subagent default model, and planning model. One scope hint per row.
-- **Plan-mode auto switching**: entering plan mode switches to the planning model; approving the plan or `/plan off` restores the pre-plan main model and effort before the first execution request. The review panel shows the model that will be restored.
-- **Per-session subagent overrides**: the chat-bar subagent chip always shows the model new subagents will use. Until you pick one it follows the settings default (or the main model when unset); a pick is stored as a durable session override and never changes the settings default. To go back to the default model, pick it from the list.
-- **Route validation before saving**: overrides and child creation validate the exact provider/model/effort through the host's `resolveCallConfig`; invalid combos fail immediately with the real reason instead of failing inside a run.
+## What the plugin guarantees
 
-## Routing rules
-
-- **Subagents**: session override > settings default > the confirmed current/pending parent selection. Provider, model and effort form one locked choice; tool/start parameters cannot override it. Nested children inherit the parent child’s lock. Later chat picks affect only newly created children.
-- **Plan mode**: the current session provider/model/effort is saved atomically on entry → the planning model is used temporarily → restored before the first execution request after approval or `/plan off`. A failed restore is retryable and never strands the session on the planning model.
-- **Defaults are independent of sessions**: the settings page stores the new-session defaults; chat picks and plan switches only affect the current session. The host adapter isolates the native `selectModel` "save as deployment default" side effect with `AsyncLocalStorage`, blocking only that call chain.
+- **A choice is a lock.** A subagent's model and reasoning effort are locked when it is created, and stay the same through follow-ups, retries, and restarts. If the main agent asks for a different model in its tool call, your choice still wins.
+- **Planning ends, your model comes back.** Entering plan mode switches to the planning model for the time being. After you approve the plan or run `/plan off`, the first execution request already uses your original main model and effort.
+- **Chat choices leave the defaults alone.** Changes made in the chat bar affect the current session only. What a new session uses is decided by the settings page alone.
+- **It stops instead of switching models behind your back.** If a model is unavailable, the configuration is damaged, or a save fails, the request stops and tells you why. Nothing falls back to another model.
 
 ## Install
 
-Installs on any DSH version; host seams decide what runs. DSH versions where the full contract suite passed are listed in [verified versions](docs/verified-versions.md) (Chinese): evidence, not an install condition.
+It installs on any DSH version, with no local build.
 
-```bash
-dsh plugin --profile desktop add github:Dalizi2026/dsh-model-dispatch
+1. Wait for running DSH tasks to finish.
+2. Run the install command, replacing `desktop` with the profile you use:
+
+   ```bash
+   dsh plugin --profile desktop add github:hina1016/dsh-model-dispatch
+   ```
+
+3. **Fully quit DSH and open it again.** Refreshing the page is not enough: that reloads only the interface, and the host part that enforces the model lock needs a restart.
+
+## Usage
+
+### 1. Set the defaults in settings
+
+Open **Model switch** in DSH settings. It has three rows:
+
+| Setting | What it does | When unset |
+|---|---|---|
+| New session default | New sessions start on it | DSH's own default |
+| Subagent default | Subagents use it by default | Follows the main model |
+| Planning model | Used in plan mode | Follows the main model, so nothing switches |
+
+### 2. Change models in the chat
+
+The chat input shows a **Main** chip and a **Subagent** chip, each naming its current model and reasoning effort (narrow windows show the model only). Both open the same menu:
+
+1. Search, or pick a model from favorites, recently used, or a provider group.
+2. The menu stays open, so you can adjust the reasoning effort at the bottom.
+3. Click **Apply** to save. Cancel, Escape, or a click outside the menu saves nothing.
+
+What each chip affects:
+
+- The **Main** chip changes the current session only.
+- The **Subagent** chip always shows the model new subagents will use. Changing it affects subagents created afterwards; running subagents keep their model. To go back to the default, pick the default model from the list.
+
+### 3. What happens in plan mode
+
+```text
+Everyday chat (main model)
+   │  /plan
+   ▼
+Planning (planning model) ── plan declined ──▶ stays in plan mode on the planning model
+   │  plan approved, or /plan off
+   ▼
+Execution (the main model and effort from before planning)
 ```
 
-Replace `desktop` with the profile you actually use. Wait for active tasks to finish. After installing, **fully quit and reopen DSH** — the host half needs a recomposition; refreshing the page only reloads the client half.
+The review panel names the model that execution will restore. Subagents take no part in this switch and keep their own locked model.
 
-> `lib/` in the repository holds prebuilt artifacts, so installing straight from GitHub works without a local build.
+### 4. Favorite the combinations you use
 
-## Persistence
+The ★ in the menu saves a model together with a reasoning effort. Several efforts of one model share a single row of chips, one click each. Picking a model by its name starts from the effort you last used with it. The full rules are in [favorites and reasoning effort](docs/favorite-efforts.md).
+
+## Which model does a subagent use?
+
+The first of these that has a value:
+
+1. the model you picked on this session's **Subagent** chip;
+2. **Subagent default** in settings;
+3. the main session's current model.
+
+Model and reasoning effort are locked as one choice. A subagent's own subagents inherit the same lock. The full rules are in [1.2.0 route locking](docs/releases/1.2.0-route-locking.md).
+
+## FAQ
+
+**Nothing changed after installing?**
+Fully quit DSH and open it again. Refreshing the page is not enough.
+
+**A ⚠ on the chip, or a "Degraded" banner at the top of settings?**
+The DSH you are running lacks an interface the plugin needs, usually after a DSH upgrade. The notice names the affected function and the missing interface; everything else keeps working. Update the plugin, or paste the notice into an issue. [1.3.0 notes](docs/releases/1.3.0-host-seams.md) explain each degraded state.
+
+**A subagent header says "Model confirmation required; requests paused"?**
+This is an older subagent with no lock record, typically one created before upgrading to 1.2.0. Open it, expand the notice in its header, pick a model and effort, and click **Apply**. It continues with its original context.
+
+**The main agent named another model in its tool call. Why was it ignored?**
+By design: you decide which model a subagent uses, not the model. The interface shows "Conflicting tool or preset selection ignored".
+
+**I changed the subagent model, but a running subagent did not change.**
+Existing subagents stay locked. A new choice applies to subagents created afterwards; to run a task on another model, start a new subagent.
+
+**Saving says the model is invalid?**
+Before saving, the plugin asks DSH whether that exact provider, model, and effort combination is usable. Providers with similar names are not interchangeable, so pick the model again from the correct provider group.
+
+**Favorites and recent models are gone on another computer?**
+They live in the browser's local storage and do not sync. Model settings and locks are not affected.
+
+**Which DSH versions are supported?**
+It installs on any version; which functions run depends on the interfaces that DSH provides. Versions where the full test suite passed are listed in [verified versions](docs/verified-versions.md), as a reference and not as an install condition.
+
+## Release history
+
+| Version | Main changes |
+|---|---|
+| 1.3.0 | No DSH version gate; when DSH lacks an interface, only the affected function is switched off, with the reason shown; adapts to DSH 0.2.2; favorites keep the reasoning effort. [Notes](docs/releases/1.3.0-host-seams.md) |
+| 1.2.3 | Aligned with DSH Desktop 0.2.1-rc.5. [Notes](docs/releases/1.2.3-compatibility.md) |
+| 1.2.2 | Refines the checks on subagent compaction requests, the route status display, and restoring the main model after planning. [Notes](docs/releases/1.2.2-fixes.md) |
+| 1.2.0 | Subagent models are locked at creation; errors stop the request instead of switching models; older subagents continue only after you confirm a model. [Notes](docs/releases/1.2.0-route-locking.md) |
+
+Earlier versions and verification reports are in the [documentation index](docs/README.md). Everything under `docs/` is written in Chinese.
+
+## Where data is stored
 
 | Data | Location |
 |---|---|
-| Settings defaults (subagent default / planning model) | DSH profile config (volatile fields; editable from the settings page or the config file) |
-| New-session main-model default | The native `agent-default-model` entry |
-| Session subagent overrides | `$DSH_HOME/storages/model-switch/session-overrides.json` |
-| Immutable child routes | `$DSH_HOME/storages/model-switch/child-route-locks.json` |
-| Pre-plan main model | `$DSH_HOME/storages/model-switch/plan-main-models.json` (cleared after a successful restore) |
-| Menu favorites / recents / last efforts | Browser localStorage `dsh-model-switch/picker-v2` (not synced) |
+| Subagent default, planning model | DSH profile config, editable from the settings page or the config file |
+| New session default | DSH's native `agent-default-model` entry |
+| Per-session subagent choices | `$DSH_HOME/storages/model-switch/session-overrides.json` |
+| Subagent model locks | `$DSH_HOME/storages/model-switch/child-route-locks.json` |
+| Main model saved before planning | `$DSH_HOME/storages/model-switch/plan-main-models.json`, cleared after a successful restore |
+| Favorites, recent models, last efforts | Browser localStorage `dsh-model-switch/picker-v2`, not synced |
 
-## Build and test
+Upgrading the plugin needs no data migration.
+
+## Development and verification
 
 ```bash
 npm ci
-npm test        # vitest
-npm run build       # tsc (two projects) + tsdown client bundle
+npm test            # vitest
+npm run typecheck   # host and client projects
+npm run build       # outputs to lib/
 npm run preview     # interactive model-menu preview at http://127.0.0.1:5179/
 ```
 
-Coverage includes conflicting tool/native routes, immutable child locks, concurrent saves, corruption/write failure rejection, cold historical confirmation with authentication and ownership checks, nested delegation, request-boundary rejection, plan restoration, independent defaults and client acknowledgement races.
+`lib/` holds build output committed to the repository, because users install straight from GitHub. After changing `src/`, rebuild and commit `lib/` together with the source.
 
-For an isolated native-host test with simulated models (no paid requests):
+To run the contract suite on a full DSH host, with simulated models and no paid requests:
 
 ```bash
 DSH_TEST_MODULE_ROOT=/absolute/path/to/dsh/node_modules node scripts/verify-host.mjs
 ```
 
-The script creates a separate temporary profile, checks native tool execution, nested locks, request headers and adapter dispatch, asserts zero Opus dispatches and an empty host seam report. It leaves the active desktop profile untouched. `.github/workflows/regression.yml` runs it on each listed DSH version, and `workflow_dispatch` accepts any version; see [verified versions](docs/verified-versions.md) for recording a result.
+The script uses its own temporary profile and leaves your desktop profile untouched. It checks native tool execution, nested delegation, request headers, and adapter dispatch, and asserts that the model the tool arguments asked for (a simulated Opus in the tests) is never dispatched and that the host seam report is empty. CI (`.github/workflows/regression.yml`) runs it on each listed DSH version and can be triggered manually with any version; [verified versions](docs/verified-versions.md) describes how to record a result.
+
+How it works, in brief:
+
+- Before a choice is saved or a subagent is created, the exact provider, model, and effort combination is validated through the host's `resolveCallConfig`; an invalid combination fails immediately.
+- The model lock is written atomically when a subagent is created and checked before every request is assembled and dispatched. The final `llm/stream` guard only admits or rejects; it never rewrites a request.
+- The model discovery tool reports only the route the user locked and cannot pick another.
+- `AsyncLocalStorage` isolates the native `selectModel` side effect of saving the model as the deployment default, blocking only that call chain, so neither chat picks nor plan switches change the new-session default.
+
+More documentation: the [documentation index](docs/README.md), the [glossary](GLOSSARY.md), and [ADR 0001](docs/adr/0001-host-seams-not-versions.md). Agents working in this repository should read [AGENTS.md](AGENTS.md) first.
 
 ## Known limitations
 
-- Runtime checks prove a host seam exists, not that its behavior is unchanged. Event renames, timing changes and missing module exports are caught only by the native contract suite; run it on each new DSH version.
-- Live plan approval uses the canonical `approved` value. Recovering an approval across a process restart also uses the durable tool result and `plan/mode` events; native event changes require regression checks.
-- Child sessions do not switch models in plan mode. They keep their own immutable lock; nested delegation inherits it.
-- External backends that cannot prove the dispatch route are rejected. Missing/corrupt locks or unavailable models require repair or explicit historical confirmation; there is no automatic model fallback.
-- “Last admitted request” shows the route allowed through the final guard, not proof of provider success or billing.
+- The plugin can confirm that DSH provides an interface it needs, not that the interface still behaves the same. Renamed events and timing changes are caught only by the contract suite, so it has to run on each new DSH version.
+- Recognizing an approved plan depends on DSH's event format; a format change in DSH requires re-verification.
+- Subagents take no part in plan switching and keep their own lock; their subagents inherit it.
+- Some external backends cannot guarantee which model actually runs, and subagents on those backends are refused. A damaged configuration or lock needs you to repair or confirm it; there is no automatic model fallback.
+- "Last admitted request" in the interface means the plugin let a request on that route through. It is not proof that the provider answered or billed.
 
 ## Credits
 
-- Original design and the 0.1.x implementation: [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) (MIT) — this plugin builds on that work.
-- [PR #1](https://github.com/Dalizi2026/dsh-model-dispatch/pull/1) identified the `startActivation` entry-point migration; native-entry regression tests retain coverage of that report.
-- The 0.2.x adaptation, plan-mode switching, session overrides, route validation, and the new UI were rewritten/extended in this repository.
+- Original design and the 0.1.x implementation: [lincong1987/dsh-model-switch](https://github.com/lincong1987/dsh-model-switch) (MIT).
+- [PR #1](https://github.com/Dalizi2026/dsh-model-dispatch/pull/1) identified the `startActivation` entry-point change; the native-entry tests for it are still in the suite.
+- The DSH 0.2.x adaptation (settings system, subagent projections, session model-selection APIs), plan-mode switching, session overrides, route validation, and the new interface were rewritten and extended in this repository.
 
 ## License
 

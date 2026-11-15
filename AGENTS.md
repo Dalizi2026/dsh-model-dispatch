@@ -7,10 +7,14 @@
 
 ## 文档入口
 
-- 项目概览、路由规则、安装与已知限制：[README.zh.md](README.zh.md)（英文版 [README.md](README.md)）。
+- 给使用者的概览、安装、用法、常见问题与已知限制：[README.zh.md](README.zh.md)（英文版 [README.md](README.md)）。两份内容保持同步，写给没读过源码的人，不堆实现细节。
 - 项目术语（宿主接缝、已验证版本等）：[GLOSSARY.md](GLOSSARY.md)；放在根目录是因为 Matt 系列技能从根目录读取它。
-- 架构决策记录在 `docs/adr/`，例如 [0001 以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
-- 版本与专题说明在 `docs/`，按任务需要读取，例如 [1.3.0 宿主接缝](docs/1.3.0-host-seams.md)、[已验证版本](docs/verified-versions.md)、[1.2.0 路由锁定](docs/1.2.0-route-locking.md)。
+- 其余文档从[文档索引](docs/README.md)进入，按任务需要读取：
+  - 现行专题在 `docs/` 根目录，例如[已验证版本](docs/verified-versions.md)、[收藏模型与思考强度](docs/favorite-efforts.md)。
+  - 版本说明在 `docs/releases/`，例如 [1.3.0 宿主接缝](docs/releases/1.3.0-host-seams.md)、[1.2.0 路由锁定](docs/releases/1.2.0-route-locking.md)。
+  - 早期的真实请求验证报告在 `docs/verification/`，均为历史记录。
+  - 架构决策在 `docs/adr/`，例如 [0001 以宿主接缝而非版本决定能否运行](docs/adr/0001-host-seams-not-versions.md)。
+- 新增、移动或改名文档时，按索引里的“文档约定”写文件名、标题和信息表，并同步更新索引与 README 里的链接。
 
 ## 宿主兼容约束
 
