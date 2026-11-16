@@ -28,8 +28,6 @@ import {
 } from './PlanReviewComposer.tsx'
 import { SubagentModelBadge, type SubagentModelBadgeInjected } from './SubagentModelBadge.tsx'
 import {
-  SubagentCatalogAction,
-  type SubagentCatalogInjected,
 } from './SubagentCatalogAction.tsx'
 import { SessionLabelStore } from './session-label-store.ts'
 import type { ModelCatalogAccess } from './ModelPicker.tsx'
@@ -130,26 +128,6 @@ export function apply(ctx: Context): void {
     order: 5,
     inject: badgeInject,
   }, SubagentModelBadge))
-
-  const catalogInject = (): SubagentCatalogInjected => ({
-    openChild(address: SubagentAddress) {
-      ctx.uiWorkspace.openSession(address)
-    },
-    refresh(parentSessionId: SessionId) {
-      void sessions.refreshProjections(parentSessionId)
-    },
-    labels,
-  })
-
-  // Same id as the stock ui-subagent catalog entry; lower priority shadows it.
-  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.actions',
-    id: 'subagent-catalog',
-    order: 10,
-    priority: -1,
-    locale: 'subagent',
-    inject: catalogInject,
-  }, SubagentCatalogAction))
 
   // A single seat contains the main route followed by its child route.
   ctx.slots.inject('conversation.input.model', () => ctx.slots.register({

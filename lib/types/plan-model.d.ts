@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { type Config, type ModelSelectionConfig } from './shared.ts';
 export interface PlanMainStore {
+    ready?(): Promise<void>;
     get(id: string): ModelSelectionConfig | undefined;
     set(id: string, selection: ModelSelectionConfig | undefined): Promise<void>;
 }

@@ -1,6 +1,4 @@
-/** Validate and install the final child route before creating a child. */
+/** Wrap only real host entry points; the authority owns every model field. */
 import type { Context } from '@deepseek-ai/cordis';
-import type { Config } from './shared.ts';
-import type { RouteValidator } from './model-route.ts';
-import type { SessionOverrideStore } from './session-overrides.ts';
-export declare function installSubagentRouting(ctx: Context, current: () => Config, overrides: SessionOverrideStore, validate: RouteValidator): void;
+import type { RouteEnforcer } from './route-enforcer.ts';
+export declare function installSubagentRouting(ctx: Context, authority: RouteEnforcer): void;
