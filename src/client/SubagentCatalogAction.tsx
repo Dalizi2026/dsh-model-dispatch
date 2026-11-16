@@ -18,7 +18,7 @@ import css from './SubagentCatalogAction.module.css'
 
 /** One derived catalog level: the projection view plus running-state rows. */
 interface CatalogView {
-  state: 'loading' | 'ready' | 'error'
+  state: 'loading' | 'ready' | 'migration-required' | 'error'
   error: { message: string } | null
   entries: readonly (SubagentCatalogEntry & { activity: 'running' | 'inactive' })[]
 }
@@ -221,7 +221,10 @@ function CatalogRows({
   openChild, refresh, toggleBranch, closeCatalog, modelLabels, t,
 }: CatalogRowsProps & { t: TranslateNS<"subagent"> }) {
   const emptyLoading = catalog.state === 'loading' && catalog.entries.length === 0
-  const reserveDisclosure = catalog.entries.some(entry => !isKnownLeaf(catalogs[entry.id]))
+  const reserveDisclosure = catalog.entries.some(entry => entry.mode !== 'external'
+    && summaries[entry.id]?.formatStatus !== 'migration-required'
+    && catalogs[entry.id]?.state !== 'migration-required'
+    && !isKnownLeaf(catalogs[entry.id]))
   return (
     <>
       {emptyLoading && <div className={css.notice}>{t('loading.label')}</div>}
@@ -239,20 +242,22 @@ function CatalogRows({
         </div>
       )}
       {catalog.entries.map((entry) => {
+        const external = entry.mode === 'external'
         const childCatalog = catalogs[entry.id]
-        const isExpanded = expanded.has(entry.id)
-        const knownLeaf = !reserveDisclosure || isKnownLeaf(childCatalog)
+        const requiresOpening = summaries[entry.id]?.formatStatus === 'migration-required' || childCatalog?.state === 'migration-required'
+        const knownLeaf = external || requiresOpening || !reserveDisclosure || isKnownLeaf(childCatalog)
+        const isExpanded = !knownLeaf && expanded.has(entry.id)
         const childLoading = childCatalog === undefined
           || (childCatalog.state === 'loading' && childCatalog.entries.length === 0)
         const summary = summaries[entry.id]
         const label = entry.label ?? entry.id
-        const mode = entry.mode === 'unknown'
+        const mode = external ? t('mode.external') : entry.mode === 'unknown'
           ? t('mode.unknown')
           : entry.mode === 'one-shot'
             ? t('mode.oneShot')
             : t('mode.continuable')
         const activity = entry.activity === 'running' ? t('activity.running') : t('activity.inactive')
-        const secondary = [summary?.title, mode, activity]
+        const secondary = [summary?.title, requiresOpening ? t('catalog.migrationRequired') : mode, external ? undefined : activity]
           .filter(value => value !== undefined)
           .join(' · ')
         const projectionValues = summary?.projectionValues as
@@ -275,6 +280,7 @@ function CatalogRows({
           .join(' · ')
 
         const open = (): void => {
+          if (entry.mode === 'external') return
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
           closeCatalog()
         }
@@ -302,7 +308,8 @@ function CatalogRows({
           <div key={entry.id} className={css.node}>
             <div
               role="treeitem"
-              tabIndex={0}
+              tabIndex={external ? -1 : 0}
+              aria-disabled={external || undefined}
               aria-level={level}
               aria-label={[label, secondary, metrics].filter(value => value !== '').join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
@@ -425,6 +432,7 @@ function SubagentCatalogActionLoaded({
   const catalogs = useMemo<Catalogs>(() => Object.fromEntries(Object.entries(projections).map(([id, snapshot]) => [id, {
     state: snapshot.state === 'idle'
       ? (snapshot.values.subagentCatalog === undefined ? 'loading' : 'ready')
+      : snapshot.state === 'migration-required' && snapshot.values.subagentCatalog !== undefined ? 'ready'
       : snapshot.state,
     error: snapshot.error,
     entries: (snapshot.values.subagentCatalog ?? []).map(entry => ({

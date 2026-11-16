@@ -10,7 +10,7 @@ import {
   readRoute,
   resolveCustomSelection,
 } from './config.ts'
-import type { Config as ModelSwitchConfig } from './shared.ts'
+import type { Config as ModelSwitchConfig, ModelSelectionConfig } from './shared.ts'
 import {
   effortFromSelection,
   installSessionLabelTracking,
@@ -21,9 +21,12 @@ import { installSessionOverridesHttp, SessionOverrideStore } from './session-ove
 import { installPlanMainsHttp } from './plan-main-http.ts'
 import { installPlanModelSwitch } from './plan-model.ts'
 import { installSessionModelScope } from './session-model-scope.ts'
-import { modelRouteValidator } from './model-route.ts'
+import { modelRouteResolver } from './model-route.ts'
 import { installSubagentRouting } from './subagent-routing.ts'
 import { assertCatalogRoute, installSubagentCatalog } from './subagent-catalog.ts'
+import { RouteLockStore } from './route-locks.ts'
+import { RouteEnforcer } from './route-enforcer.ts'
+import { installRouteHttp, ownerGate } from './route-http.ts'
 
 export {
   resolveCustomSelection,
@@ -57,7 +60,6 @@ export const inject = ['subagents']
 export async function apply(ctx: Context, config: ModelSwitchConfig = {}): Promise<void> {
   const current = (): ModelSwitchConfig => config
   installSessionModelScope(ctx)
-  installSubagentCatalog(ctx)
 
   const labels = new SessionLabelRegistry()
   installSessionLabelsHttp(ctx, labels)
@@ -66,16 +68,27 @@ export async function apply(ctx: Context, config: ModelSwitchConfig = {}): Promi
   ))
 
   const overrides = new SessionOverrideStore()
-  await overrides.ready()
-  const validateRoute = modelRouteValidator(ctx)
-  installSessionOverridesHttp(ctx, overrides, validateRoute)
+  const resolver = modelRouteResolver(ctx)
+  const admit = async (route: ModelSelectionConfig): Promise<ModelSelectionConfig> => {
+    await assertCatalogRoute(ctx, route)
+    return resolver(route)
+  }
+  const authority = new RouteEnforcer(ctx, current, overrides, new RouteLockStore(), admit)
+  // Mount fail-closed boundaries before touching disk. Initialization failure
+  // must not dispose the protection and leave native inheritance running.
+  authority.installGuards()
+  installSubagentRouting(ctx, authority)
+  installSubagentCatalog(ctx, authority)
+  installRouteHttp(ctx, authority)
+  installSessionOverridesHttp(ctx, overrides, async route => { await admit(route) }, ownerGate(ctx))
   const planMains = new SessionOverrideStore('plan-main-models.json')
-  await planMains.ready()
+  // Keep plan storage failures visible at the request boundary, too.
   installPlanMainsHttp(ctx, planMains)
   installPlanModelSwitch(ctx, current, planMains)
-
-  installSubagentRouting(ctx, current, overrides, async route => {
-    await assertCatalogRoute(ctx, route)
-    await validateRoute(route)
-  })
+  await authority.initialize()
+  try {
+    await planMains.ready()
+  } catch (cause) {
+    ctx.logger.error('Model switch: cannot initialize plan recovery storage', cause)
+  }
 }

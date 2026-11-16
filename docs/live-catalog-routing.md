@@ -1,5 +1,7 @@
 # 模型目录统一路由修复（1.0.1）
 
+> 历史版本验证记录：其中“显式工具参数优先”的行为已在 1.2.0 移除。当前行为见 [1.2.0 路由锁定](1.2.0-route-locking.md)。
+
 2026-10-07，运行宿主：DeepSeek Harness Desktop 0.2.0-rc.2。
 插件：`dsh-model-dispatch`（原 dsh-model-switch 已改名）。本地链接安装已构建，并重启 Desktop 加载。
 

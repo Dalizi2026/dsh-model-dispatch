@@ -3,6 +3,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-plan-mode'
 import { readRoute, resolveCustomSelection } from './config.ts'
 import { sameSelection, type Config, type ModelSelectionConfig } from './shared.ts'
 import { PLAN_BOUNDARY_KEY, planBoundaryDefinition, type BoundaryState } from './plan-boundary.ts'
@@ -15,6 +18,7 @@ interface ProjectionFace {
 interface PlanState { active: boolean; wanted?: boolean | null }
 interface SelectionState { pending?: ModelSelectionConfig | null; lastUsed?: ModelSelectionConfig | null }
 export interface PlanMainStore {
+  ready?(): Promise<void>
   get(id: string): ModelSelectionConfig | undefined
   set(id: string, selection: ModelSelectionConfig | undefined): Promise<void>
 }
@@ -22,28 +26,40 @@ export interface PlanMainStore {
 export function installPlanModelSwitch(ctx: Context, current: () => Config, mains: PlanMainStore): void {
   ctx.inject(['sessionProjections', 'sessionController'], (scope) => {
     const modes = new WeakMap<object, boolean>()
+    const approvals = new WeakSet<object>()
     const projections = scope.sessionProjections as unknown as ProjectionFace
     projections.register(planBoundaryDefinition)
-    scope.on('agent/pre-step', async ({ agent, signal }, next) => {
-      const decision = await next()
-      if (decision.kind === 'reject' || signal.aborted) return decision
-      const logged = projections.stateOf(agent.session, 'plan') as PlanState | undefined
-      if (modes.has(agent.session) && logged !== undefined) modes.set(agent.session, logged.active)
-      return decision
-    }, { prepend: true })
+    // The canonical outcome is independent of translated/rendered tool copy.
+    // In 0.2.1 dismissing a review succeeds with approved:false and ends the
+    // turn, so success alone must never restore the main model.
+    scope.on('tools/result', (exec, result): undefined => {
+      if (exec.name !== 'exit_plan_mode' || !exec.agent || result.isError) return
+      const value = result.value
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) && value.approved === true) approvals.add(exec.agent.session)
+    })
+    scope.on('session/event', (session, event): undefined => {
+      // A fresh planning intent supersedes an approval received just before
+      // the next request. Do not let that earlier approval end the new plan.
+      if ((event.type === 'command/run' && event.data.name === 'plan' && event.data.args?.trim() !== 'off')
+        || (event.type === 'plan/mode' && event.data.active)) approvals.delete(session)
+    }, { global: true })
+    // modes tracks the route transition we applied, not the native projection.
+    // A pre-step may already observe plan/mode:false before this assembly.
     scope.on('system-prompt/assemble', async (_assembly, context, next) => {
       const agent = context.agent
       if (agent === undefined || agent.session.header.origin === 'subagent') return next()
       const session = agent.session
       const logged = projections.stateOf(session, 'plan') as PlanState | undefined
       if (logged === undefined) return next()
+      await mains.ready?.()
       const boundary = projections.stateOf(session, PLAN_BOUNDARY_KEY) as BoundaryState | undefined
       const mode = (scope.get('planMode') as PlanModeFace | undefined)?.get(agent)
       // An approved native tool result precedes plan/mode:false. A projection
       // sees that result even when the preset isolates its planMode service.
-      const active = mode?.pending ?? (boundary?.approved ? false : mode?.active ?? logged.wanted ?? logged.active)
+      const approved = approvals.has(session) || boundary?.approved === true
+      const active = mode?.pending ?? (approved ? false : mode?.active ?? logged.wanted ?? logged.active)
       const previous = modes.get(session)
-      if (previous === active) return next()
+      if (previous === active && (active || mains.get(agent.id) === undefined)) return next()
       const entering = active && previous !== true
       const leaving = !active && (previous === true || logged.active || mains.get(agent.id) !== undefined)
       if (!entering && !leaving) { modes.set(session, active); return next() }
@@ -75,7 +91,10 @@ export function installPlanModelSwitch(ctx: Context, current: () => Config, main
           ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
         })
       }
-      if (leaving) await mains.set(agent.id, undefined)
+      if (leaving) {
+        await mains.set(agent.id, undefined)
+        approvals.delete(session)
+      }
       // Record only after admission succeeds; a failed restore must retry.
       modes.set(session, active)
       context.signal?.throwIfAborted()

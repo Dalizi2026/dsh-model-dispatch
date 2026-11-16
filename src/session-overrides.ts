@@ -7,15 +7,16 @@
  * thread's pick survives host restarts.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeAtomicJson } from './atomic-json.ts'
+import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { SESSION_OVERRIDES_ROUTE } from './label.ts'
 import type { ModelSelectionConfig } from './shared.ts'
 import type { RouteValidator } from './model-route.ts'
+import type { HttpGate } from './route-http.ts'
 
 export { SESSION_OVERRIDES_ROUTE }
 
@@ -31,11 +32,12 @@ export class SessionOverrideStore {
   private writing = Promise.resolve()
 
   get(sessionId: string): ModelSelectionConfig | undefined {
-    return this.values.get(sessionId)
+    const value = this.values.get(sessionId)
+    return value === undefined ? undefined : { ...value }
   }
 
   snapshot(): Record<string, ModelSelectionConfig> {
-    return Object.fromEntries(this.values)
+    return Object.fromEntries([...this.values].map(([id, value]) => [id, { ...value }]))
   }
 
   /** Both host activation and HTTP reads wait for this shared initialization. */
@@ -44,11 +46,13 @@ export class SessionOverrideStore {
   }
 
   async set(sessionId: string, selection: ModelSelectionConfig | undefined): Promise<void> {
+    if (selection !== undefined && !isSelection(selection)) throw new Error('Invalid model selection')
+    const detached = selection === undefined ? undefined : { ...selection }
     await this.ready()
     const operation = this.writing.then(async () => {
       const next = new Map(this.values)
-      if (selection === undefined) next.delete(sessionId)
-      else next.set(sessionId, { ...selection })
+      if (detached === undefined) next.delete(sessionId)
+      else next.set(sessionId, detached)
       // Commit in memory only after durable write succeeds. A failed save is
       // reported to the caller and does not poison subsequent writes.
       await this.writeOnce(Object.fromEntries(next))
@@ -68,19 +72,18 @@ export class SessionOverrideStore {
       throw cause
     }
     let raw: unknown
-    try { raw = JSON.parse(text) } catch { return }
+    try { raw = JSON.parse(text) } catch (cause) { throw new Error('Session model selections are corrupt; delegation is blocked', { cause }) }
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid session model selections')
     if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
       for (const [id, value] of Object.entries(raw)) {
-        if (isSelection(value)) this.values.set(id, value)
+        if (!isSelection(value)) throw new Error('Invalid saved model selection for session ' + id)
+        this.values.set(id, value)
       }
     }
   }
 
   private async writeOnce(value: Record<string, ModelSelectionConfig>): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true })
-    const tmp = `${this.path}.${randomUUID()}.tmp`
-    await writeFile(tmp, JSON.stringify(value, null, 2))
-    await rename(tmp, this.path)
+    await writeAtomicJson(this.path, value)
   }
 
 }
@@ -88,9 +91,9 @@ export class SessionOverrideStore {
 function isSelection(value: unknown): value is ModelSelectionConfig {
   if (value === null || typeof value !== 'object') return false
   const row = value as { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
-  return typeof row.provider === 'string' && row.provider.length > 0
-    && typeof row.model === 'string' && row.model.length > 0
-    && (row.reasoningEffort === undefined || typeof row.reasoningEffort === 'string')
+  return typeof row.provider === 'string' && row.provider.trim().length > 0
+    && typeof row.model === 'string' && row.model.trim().length > 0
+    && (row.reasoningEffort === undefined || (typeof row.reasoningEffort === 'string' && row.reasoningEffort.trim().length > 0))
 }
 
 /** Minimal face of the host web-server route registry. */
@@ -126,7 +129,7 @@ function readBody(req: IncomingMessage): Promise<string> {
  * @param ctx - host context.
  * @param store - override map.
  */
-export function installSessionOverridesHttp(ctx: Context, store: SessionOverrideStore, validate?: RouteValidator): void {
+export function installSessionOverridesHttp(ctx: Context, store: SessionOverrideStore, validate?: RouteValidator, gate?: HttpGate): void {
   let registered = false
   const mount = (web: WebRouteHost): void => {
     if (registered) return
@@ -135,6 +138,8 @@ export function installSessionOverridesHttp(ctx: Context, store: SessionOverride
       kind: 'exact',
       path: SESSION_OVERRIDES_ROUTE,
       handler: async (req: IncomingMessage, res: ServerResponse) => {
+        const denied = gate?.(req)
+        if (denied) { json(res, denied, { ok: false, error: { message: 'Owner authentication required' } }); return }
         if (req.method === 'GET') {
           try {
             await store.ready()

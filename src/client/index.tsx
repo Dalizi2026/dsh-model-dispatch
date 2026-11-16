@@ -18,6 +18,7 @@ import { MODEL_SWITCH_NS, type Config, type ModelSelectionConfig } from '../shar
 import { en, zh, type LocaleKey } from './locales.ts'
 import { ConfigStore, MainModelStore } from './config-store.ts'
 import { SettingsSection, type SettingsInjected } from './SettingsSection.tsx'
+import { RouteStatusStore } from './route-status-store.ts'
 import { SessionOverrideStore } from './session-overrides-store.ts'
 import { SessionModelControls } from './SessionModelControls.tsx'
 import {
@@ -69,6 +70,7 @@ export function apply(ctx: Context): void {
   const mainStore = new MainModelStore(ctx.configForms.get<ModelSelectionConfig>(AGENT_DEFAULT_MODEL_NS))
   const labels = new SessionLabelStore()
   const overrides = new SessionOverrideStore()
+  const routes = new RouteStatusStore()
 
   const remote = ctx.remote as ClientRemote
   const currentSelection = (sessionId: SessionId): ModelSelection | undefined => {
@@ -119,7 +121,7 @@ export function apply(ctx: Context): void {
     inject: planInject,
   }, PlanReviewComposer))
 
-  const badgeInject = (): SubagentModelBadgeInjected => ({ labels })
+  const badgeInject = (): SubagentModelBadgeInjected => ({ routes, access, t })
 
   // Sits beside the hierarchy crumbs (header.actions is the neighbour of 会话层级).
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
@@ -155,7 +157,7 @@ export function apply(ctx: Context): void {
     priority: -1,
     locale: NS,
     inject: (sessionId) => ({
-      access, remote, mainStore, t, overrides, store,
+      access, remote, mainStore, t, overrides, store, routes,
       available: sessions.subagentAddress(sessionId) === undefined,
     }),
   }, SessionModelControls))

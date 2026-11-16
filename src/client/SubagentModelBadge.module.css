@@ -13,3 +13,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.details { position: relative; max-width: 340px; font-size: 12px; }
+.details summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel { position: absolute; z-index: 30; top: 100%; right: 0; width: min(400px, 85vw); padding: 16px; border: 1px solid var(--dsw-alias-border-l2, #ddd); border-radius: 10px; background: var(--dsw-specific-menu, #fff); color: var(--dsw-alias-label-primary, #222); box-shadow: 0 6px 24px #0002; overflow-wrap: anywhere; }
+.panel p { margin: 6px 0; }

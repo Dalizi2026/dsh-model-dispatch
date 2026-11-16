@@ -22,13 +22,13 @@ describe('mergeAgentOptions', () => {
     })
   })
 
-  it('lets explicit request fields win', () => {
+  it('keeps user route authoritative and preserves unrelated request options', () => {
     expect(mergeAgentOptions(
       { provider: 'req-p', model: 'req-m', maxTokens: 10 },
       { provider: 'set-p', model: 'set-m' },
     )).toEqual({
-      provider: 'req-p',
-      model: 'req-m',
+      provider: 'set-p',
+      model: 'set-m',
       maxTokens: 10,
     })
   })

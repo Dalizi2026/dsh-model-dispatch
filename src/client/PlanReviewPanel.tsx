@@ -29,6 +29,8 @@ export function PlanReviewPanel({
   pending, review, access, t,
 }: PlanReviewPanelProps) {
   const [mainLabel, setMainLabel] = useState<string | undefined>()
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,12 +41,15 @@ export function PlanReviewPanel({
 
   useEffect(() => {
     let cancelled = false
+    setMainLabel(undefined)
+    setLoadError(null)
     void (async () => {
-      const response = await fetch(PLAN_MAIN_MODELS_ROUTE)
-      if (!response.ok) throw new Error(t('loadError'))
-      const result = await response.json() as { value: Record<string, ModelSelectionConfig> }
+      const response = await fetch(PLAN_MAIN_MODELS_ROUTE, { credentials: 'same-origin', cache: 'no-store' })
+      if (!response.ok) throw new Error(t('planMainLoadError'))
+      const result = await response.json() as { ok?: boolean; value?: Record<string, ModelSelectionConfig> }
+      if (!result.ok || !result.value) throw new Error(t('planMainLoadError'))
       const main = result.value[pending.sessionId]
-      if (main === undefined) throw new Error(t('mainUnavailable'))
+      if (main === undefined) throw new Error(t('planMainLoadError'))
       let label = main.model
       try {
         const catalog = await access.loadCatalog()
@@ -54,10 +59,10 @@ export function PlanReviewPanel({
       if (main.reasoningEffort !== undefined) label += ` · ${main.reasoningEffort}`
       if (!cancelled) setMainLabel(label)
     })().catch((cause: unknown) => {
-      if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
+      if (!cancelled) setLoadError(cause instanceof Error ? cause.message : String(cause))
     })
     return () => { cancelled = true }
-  }, [pending.sessionId, access, t])
+  }, [pending.sessionId, access, t, attempt])
 
   const settle = (send: () => Promise<void>): void => {
     setBusy(true)
@@ -106,7 +111,8 @@ export function PlanReviewPanel({
               </Button>
             )}
             <div className={css.planPicker} aria-label={t('planModelLabel')}>
-              {t('planModelLabel')}：{mainLabel ?? t('statusLoading')}
+              {t('planModelLabel')}：{mainLabel ?? (loadError ? <span role="alert" title={loadError}>{t('planMainLoadError')}</span> : t('statusLoading'))}
+              {loadError && <Button variant="ghost" disabled={busy} onClick={() => setAttempt(value => value + 1)}>{t('retry')}</Button>}
             </div>
             <Button
               variant="primary"
